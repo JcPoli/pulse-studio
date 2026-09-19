@@ -1,11 +1,18 @@
+import type { ToastState } from '../hooks/useBooking'
+
 interface Props {
-  message: string | null
+  toast: ToastState | null
 }
 
-export function Toast({ message }: Props) {
+export function Toast({ toast }: Props) {
   return (
-    <div className={message ? 'toast show' : 'toast'} role="status" aria-live="polite">
-      {message}
+    <div className={toast ? 'toast show' : 'toast'} role="status" aria-live="polite">
+      {toast?.message}
+      {toast?.undo && (
+        <button type="button" className="undo" onClick={toast.undo}>
+          Undo
+        </button>
+      )}
     </div>
   )
 }
