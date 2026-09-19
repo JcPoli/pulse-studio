@@ -22,7 +22,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build
+      # vite.config.ts deliberately sets no `base` — that would 404 the Vercel
+      # deploy — so the Pages sub-path is passed here instead of in the config.
+      # `npm run typecheck` keeps the type gate that `npm run build` would give
+      # us (and runs the local tsc: plain `npx tsc` would fetch an unrelated,
+      # deprecated `tsc` package from the registry if it ever went missing).
+      - run: npm run typecheck
+      - run: npx vite build --base=/pulse-studio/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -3,27 +3,28 @@
 Member-facing booking app for a gym, yoga or dance studio. Weekly grid timetable (days × hours),
 book / cancel / waitlist with class credits, and a membership view.
 
-**Stack:** React 19 · TypeScript · Vite 7 · Tailwind CSS v4 (Vite plugin). No backend yet —
+**Stack:** React 19 · TypeScript · Vite 6 · plain CSS. Runs on Node 18.17+. No backend yet —
 in-memory sample data, deterministic week generated from today. Supabase comes next.
 
 ## Run locally
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173/pulse-studio/
+npm run dev        # http://localhost:5173/
 npm run typecheck  # tsc --noEmit
 npm run build      # outputs dist/
 ```
-
-The dev URL includes `/pulse-studio/` because `vite.config.ts` sets `base` for GitHub Pages.
 
 ## Deploy
 
 **GitHub Pages (automatic):** push to `main`. The workflow in `.github/workflows/deploy.yml`
 builds and publishes `dist/`. One-time setup: repo **Settings → Pages → Source → GitHub Actions**.
-If the repo is not named `pulse-studio`, change `base` in `vite.config.ts` to `'/<repo-name>/'`.
+If the repo is not named `pulse-studio`, change the `--base` value in that workflow to
+`/<repo-name>/`. `vite.config.ts` sets no `base`, so the default `/` is what Vercel,
+`npm run dev` and `npm run preview` all get.
 
-**Vercel:** import the repo, framework preset Vite, and set `base: '/'` in `vite.config.ts`.
+**Vercel:** import the repo, framework preset Vite. Nothing else to configure. Leave the
+build on Vercel's default Node — it no longer offers Node 18.
 
 ## Project structure
 
@@ -43,7 +44,7 @@ src/
     Membership.tsx       credits card, activity stats, packs
     Toast.tsx
   App.tsx                tab state, selection, panel, mobile scroll sync
-  index.css              Tailwind import, @theme tokens, component styles
+  index.css              minimal reset, design tokens, component styles
 ```
 
 ## Booking rules (all in `useBooking.ts` / `schedule.ts`)

@@ -1,29 +1,32 @@
-@import "tailwindcss";
-
-/* Design tokens — exposed to Tailwind (bg-bg, text-lime, font-cond …) and to the CSS below. */
-@theme {
-  --color-bg: #101214;
-  --color-bg-2: #171A1E;
-  --color-bg-3: #1F2329;
-  --color-line: #2A2F36;
-  --color-line-2: #232830;
-  --color-text: #F2F3F5;
-  --color-text-2: #A7ADB7;
-  --color-text-3: #6C737E;
-  --color-lime: #C8F04D;
-  --color-lime-ink: #15200A;
-  --color-danger: #FF6B6B;
-  --font-cond: 'Barlow Condensed', 'Arial Narrow', sans-serif;
-  --font-sans: 'Manrope', system-ui, sans-serif;
+/* Minimal reset. This stylesheet used to get one from Tailwind's Preflight, via
+   `@import "tailwindcss"`; Tailwind is gone (no utility classes were ever used, and
+   v4 needs Node 20+), so the few Preflight declarations the components actually rely
+   on live here now. Kept in @layer base so every unlayered rule below still wins
+   over it unconditionally — the same cascade relationship Preflight had. */
+@layer base {
+  /* border-box: .wrap, .rail, .col .h, .cta, .card .btn, .panel .close and the
+     inline-sized .blk all measure padding and border inside their width/height.
+     margin/padding/border 0: body's 8px margin, the UA margins on h1-h4 and p, and
+     the UA `2px outset` border and `1px 6px` padding on every unstyled button. */
+  *, ::before, ::after { box-sizing: border-box; margin: 0; padding: 0; border: 0 solid; }
+  html { -webkit-tap-highlight-color: transparent; }
+  /* `bolder`, not `bold`: .card .foot sets font-weight 600, so the <b> in
+     "Renews <b>…</b>" computes to 900 here — the UA's absolute bold gives 700. */
+  b, strong { font-weight: bolder; }
+  /* Buttons inherit none of this from the UA stylesheet. Without it the tabs, the
+     legend, the day arrows, the panel close and the row actions all regain the grey
+     ButtonFace, and every button drops to the 13.33px system font. */
+  button { font: inherit; color: inherit; background-color: transparent; opacity: 1; }
 }
 
-/* Short aliases used by the component styles. */
+/* Design tokens — used by the component styles below. */
 :root {
-  --bg: var(--color-bg); --bg-2: var(--color-bg-2); --bg-3: var(--color-bg-3);
-  --line: var(--color-line); --line-2: var(--color-line-2);
-  --text: var(--color-text); --text-2: var(--color-text-2); --text-3: var(--color-text-3);
-  --lime: var(--color-lime); --lime-ink: var(--color-lime-ink); --danger: var(--color-danger);
-  --cond: var(--font-cond); --sans: var(--font-sans);
+  --bg: #101214; --bg-2: #171A1E; --bg-3: #1F2329;
+  --line: #2A2F36; --line-2: #232830;
+  --text: #F2F3F5; --text-2: #A7ADB7; --text-3: #6C737E;
+  --lime: #C8F04D; --lime-ink: #15200A; --danger: #FF6B6B;
+  --cond: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --sans: 'Manrope', system-ui, sans-serif;
   --hour: 68px;
   --rail: 52px;
 }
