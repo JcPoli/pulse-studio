@@ -8,15 +8,28 @@ import { MyClasses } from './components/MyClasses'
 import { Membership } from './components/Membership'
 import { Toast } from './components/Toast'
 import { useBooking, type Tab } from './hooks/useBooking'
+import { isMobile } from './hooks/useIsMobile'
+import { TYPES } from './data/catalog'
 import { MON, isoDate } from './lib/schedule'
 
-const MOBILE_QUERY = '(max-width: 980px)'
-const isMobile = () => window.matchMedia(MOBILE_QUERY).matches
-
 export default function App() {
-  // "now" is fixed for the session so the schedule doesn't shift under the user mid-booking.
-  const [now] = useState(() => new Date())
-  const b = useBooking(now)
+  // `anchor` fixes which seven days the board shows, so the grid never reshuffles mid-booking.
+  const [anchor] = useState(() => new Date())
+  // `clock` is the live one: it greys out classes as they start, walks the now-line down the
+  // board, and closes the cancellation window. It only re-renders on a minute boundary.
+  const [clock, setClock] = useState(() => new Date())
+  useEffect(() => {
+    const tick = window.setInterval(() => {
+      setClock((prev) => {
+        const next = new Date()
+        const same = next.getHours() === prev.getHours() && next.getMinutes() === prev.getMinutes()
+        return same ? prev : next
+      })
+    }, 30_000)
+    return () => window.clearInterval(tick)
+  }, [])
+
+  const b = useBooking(anchor)
 
   const [tab, setTab] = useState<Tab>('schedule')
   const [filter, setFilter] = useState<TypeFilter>('all')
@@ -24,18 +37,44 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [dayIndex, setDayIndex] = useState(0)
   const colsRef = useRef<HTMLDivElement>(null)
+  /** True while a history entry of ours is on the stack, so Back closes the sheet. */
+  const pushedRef = useRef(false)
 
   const selectedClass = selected ? (b.byId(selected) ?? null) : null
 
   const closePanel = useCallback(() => {
     setPanelOpen(false)
     document.body.style.overflow = ''
+    if (pushedRef.current) {
+      pushedRef.current = false
+      window.history.back()
+    }
   }, [])
 
   const onSelect = useCallback((id: string) => {
     setSelected(id)
     setPanelOpen(true)
-    if (isMobile()) document.body.style.overflow = 'hidden'
+    if (isMobile()) {
+      document.body.style.overflow = 'hidden'
+      // The sheet is a modal, so the phone's Back gesture should dismiss it rather than leave
+      // the app. Same URL, so this needs no router and no server rewrite.
+      if (!pushedRef.current) {
+        window.history.pushState({ pulsePanel: true }, '')
+        pushedRef.current = true
+      }
+    }
+  }, [])
+
+  // Back / swipe-back while the sheet is up: our entry is already gone, so just close.
+  useEffect(() => {
+    const onPop = () => {
+      if (!pushedRef.current) return
+      pushedRef.current = false
+      setPanelOpen(false)
+      document.body.style.overflow = ''
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
   }, [])
 
   const onTab = useCallback(
@@ -95,6 +134,13 @@ export default function App() {
     return b.classes.filter((c) => c.date === key && (filter === 'all' || c.type === filter)).length
   }, [b.week, b.classes, dayIndex, filter])
 
+  /** Whole-week total for the active filter, so a filter with no matches says so. */
+  const weekCount = useMemo(
+    () => b.classes.filter((c) => filter === 'all' || c.type === filter).length,
+    [b.classes, filter],
+  )
+  const filterLabel = filter === 'all' ? '' : `${TYPES[filter].label} `
+
   const range = `${MON[b.week[0].getMonth()]} ${b.week[0].getDate()} – ${MON[b.week[6].getMonth()]} ${b.week[6].getDate()} · ${b.classes.length} classes`
 
   return (
@@ -112,22 +158,31 @@ export default function App() {
             </div>
             <Legend value={filter} onChange={setFilter} />
           </div>
-          <DaySwitch week={b.week} index={dayIndex} count={dayCount} today={now} onChange={onDayChange} />
+          <DaySwitch week={b.week} index={dayIndex} count={dayCount} today={clock} onChange={onDayChange} />
           <div className="layout">
-            <Board
-              ref={colsRef}
-              week={b.week}
-              classes={b.classes}
-              now={now}
-              filter={filter}
-              booked={b.booked}
-              waitlist={b.waitlist}
-              selected={selected}
-              onSelect={onSelect}
-            />
+            {weekCount === 0 ? (
+              <div className="emptyb">
+                No {filterLabel}classes this week.{' '}
+                <button type="button" onClick={() => setFilter('all')}>
+                  Show all classes
+                </button>
+              </div>
+            ) : (
+              <Board
+                ref={colsRef}
+                week={b.week}
+                classes={b.classes}
+                now={clock}
+                filter={filter}
+                booked={b.booked}
+                waitlist={b.waitlist}
+                selected={selected}
+                onSelect={onSelect}
+              />
+            )}
             <DetailPanel
               c={selectedClass}
-              now={now}
+              now={clock}
               credits={b.credits}
               mine={!!(selected && b.booked[selected])}
               waitlisted={!!(selected && b.waitlist[selected])}
@@ -137,12 +192,12 @@ export default function App() {
             />
           </div>
           <p className="note">
-            <b>Demo with sample data.</b> The production build runs on Supabase — real members, live capacity shared across every phone, and pack payments. Bookings here reset on reload.
+            <b>Demo with sample data.</b> The production build runs on Supabase — real members, live capacity shared across every phone, and pack payments. Bookings are saved in this browser only.
           </p>
         </section>
 
         <section className={tab === 'mine' ? 'view on' : 'view'} id="v-mine" role="tabpanel">
-          <MyClasses upcoming={b.upcoming} waitlisted={b.waitlisted} now={now} onToggle={b.toggle} onTab={onTab} />
+          <MyClasses upcoming={b.upcoming} waitlisted={b.waitlisted} now={clock} onToggle={b.toggle} onTab={onTab} />
         </section>
 
         <section className={tab === 'membership' ? 'view on' : 'view'} id="v-membership" role="tabpanel">
@@ -151,7 +206,7 @@ export default function App() {
             bookedCount={b.upcoming.length}
             waitlistCount={b.waitlisted.length}
             favouriteType={b.favouriteType}
-            today={now}
+            today={anchor}
             onTopUp={b.topUp}
             onPlanClick={() => b.showToast('Pack change is part of the production build')}
           />
@@ -159,7 +214,7 @@ export default function App() {
       </main>
 
       <div className={panelOpen ? 'scrim open' : 'scrim'} onClick={closePanel} aria-hidden="true" />
-      <Toast message={b.toast} />
+      <Toast toast={b.toast} />
     </>
   )
 }

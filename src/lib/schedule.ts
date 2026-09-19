@@ -74,6 +74,11 @@ export function buildClasses(week: Date[]): StudioClass[] {
 
 export const isPast = (c: StudioClass, now: Date): boolean => c.when.getTime() <= now.getTime()
 export const isCancellable = (c: StudioClass, now: Date): boolean => c.when.getTime() - now.getTime() > CANCEL_WINDOW_MS
+
+/** The moment free cancellation closes — shown in the detail panel so the rule isn't a surprise. */
+export const cancelDeadline = (c: StudioClass): Date => new Date(c.when.getTime() - CANCEL_WINDOW_MS)
+
+export const formatTime = (d: Date): string => `${pad(d.getHours())}:${pad(d.getMinutes())}`
 export const spotsLeft = (c: StudioClass): number => c.cap - c.taken
 export const isFull = (c: StudioClass): boolean => spotsLeft(c) <= 0
 

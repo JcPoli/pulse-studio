@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { PACK_SIZE, type ClassType } from '../data/catalog'
 import {
   buildClasses,
@@ -49,6 +49,58 @@ export function reducer(s: BookingState, a: Action): BookingState {
   }
 }
 
+const STORAGE_KEY = 'pulse-studio/booking/v1'
+
+/**
+ * Restores state saved by an earlier visit, dropping any class id that is not in the current
+ * week. Ids carry their date, so a booking for a day that has since passed simply disappears —
+ * and deliberately does NOT refund its credit, because that class was attended.
+ */
+export function loadState(validIds: Set<string>): BookingState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const o = parsed as Record<string, unknown>
+    if (o.v !== 1 || typeof o.credits !== 'number' || !Number.isFinite(o.credits)) return null
+
+    const flags = (value: unknown): Record<string, true> => {
+      const out: Record<string, true> = {}
+      if (typeof value === 'object' && value !== null) {
+        for (const id of Object.keys(value as Record<string, unknown>)) {
+          if (validIds.has(id)) out[id] = true
+        }
+      }
+      return out
+    }
+    const taken: Record<string, number> = {}
+    if (typeof o.taken === 'object' && o.taken !== null) {
+      const src = o.taken as Record<string, unknown>
+      for (const id of Object.keys(src)) {
+        const n = src[id]
+        if (validIds.has(id) && typeof n === 'number' && Number.isFinite(n)) taken[id] = n
+      }
+    }
+    return {
+      credits: Math.max(0, Math.trunc(o.credits)),
+      taken,
+      booked: flags(o.booked),
+      waitlist: flags(o.waitlist),
+    }
+  } catch {
+    return null // unparseable, or storage blocked (private window, disabled site data)
+  }
+}
+
+function saveState(state: BookingState): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: 1, ...state }))
+  } catch {
+    // Quota or a blocked store — the app works fine without persistence.
+  }
+}
+
 /** Seed: two future bookings and one waitlist entry so the demo shows every state. */
 export function seed(classes: StudioClass[], now: Date): BookingState {
   const state: BookingState = { credits: 6, taken: {}, booked: {}, waitlist: {} }
@@ -69,10 +121,29 @@ export type ToggleResult =
   | { ok: true; message: string }
   | { ok: false; message: string }
 
-export function useBooking(now: Date) {
-  const week = useMemo(() => buildWeek(now), [now])
+/** A toast may carry one reversing action, rendered as an Undo button. */
+export interface ToastState {
+  message: string
+  undo?: () => void
+}
+
+/**
+ * `anchor` fixes which seven days the board shows, so the grid never reshuffles under the user.
+ * Anything time-sensitive (past, cancellable) reads the clock fresh instead — see `toggle`.
+ */
+export function useBooking(anchor: Date) {
+  const week = useMemo(() => buildWeek(anchor), [anchor])
   const baseClasses = useMemo(() => buildClasses(week), [week])
-  const [state, dispatch] = useReducer(reducer, undefined, () => seed(baseClasses, now))
+  const validIds = useMemo(() => new Set(baseClasses.map((c) => c.id)), [baseClasses])
+  const [state, dispatch] = useReducer(
+    reducer,
+    undefined,
+    () => loadState(validIds) ?? seed(baseClasses, anchor),
+  )
+
+  useEffect(() => {
+    saveState(state)
+  }, [state])
 
   /** Classes with the member's own effect on capacity applied. */
   const classes = useMemo<StudioClass[]>(
@@ -81,22 +152,27 @@ export function useBooking(now: Date) {
   )
   const byId = useCallback((id: string) => classes.find((c) => c.id === id), [classes])
 
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
   const toastTimer = useRef<number | undefined>(undefined)
-  const showToast = useCallback((m: string) => {
-    setToast(m)
+  /** An undoable toast lingers longer, since it is now something to act on rather than just read. */
+  const showToast = useCallback((message: string, undo?: () => void) => {
+    setToast({ message, undo })
     window.clearTimeout(toastTimer.current)
-    toastTimer.current = window.setTimeout(() => setToast(null), 2200)
+    toastTimer.current = window.setTimeout(() => setToast(null), undo ? 6000 : 2200)
   }, [])
 
   /** One entry point for the primary action on a class; decides what the click means. */
   const toggle = useCallback(
     (id: string): ToggleResult => {
+      // Read the clock here, not at mount: a tab left open overnight must not let a class
+      // that has already started be booked, nor misjudge the two-hour cancellation window.
+      const at = new Date()
       const c = byId(id)
-      if (!c || isPast(c, now)) return { ok: false, message: 'This class has already started' }
+      if (!c || isPast(c, at)) return { ok: false, message: 'This class has already started' }
       let r: ToggleResult
+      let undo: (() => void) | undefined
       if (state.booked[id]) {
-        if (!isCancellable(c, now)) r = { ok: false, message: 'Too late to cancel — under 2 hours to class' }
+        if (!isCancellable(c, at)) r = { ok: false, message: 'Too late to cancel — under 2 hours to class' }
         else {
           dispatch({ type: 'cancel', id })
           r = { ok: true, message: 'Cancelled · credit refunded' }
@@ -112,11 +188,16 @@ export function useBooking(now: Date) {
       } else {
         dispatch({ type: 'book', id })
         r = { ok: true, message: `Booked ${c.name} · ${c.time}` }
+        // A single tap spends a credit, so offer the exact inverse while the toast is up.
+        undo = () => {
+          dispatch({ type: 'cancel', id })
+          showToast('Booking undone · credit refunded')
+        }
       }
-      showToast(r.message)
+      showToast(r.message, undo)
       return r
     },
-    [byId, now, state.booked, state.waitlist, state.credits, showToast],
+    [byId, state.booked, state.waitlist, state.credits, showToast],
   )
 
   const topUp = useCallback(() => {
