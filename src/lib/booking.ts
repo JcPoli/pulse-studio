@@ -55,11 +55,16 @@ export function alternativesFor(
 export const queuePosition = (c: StudioClass): number => c.waiting + 1
 
 /**
- * Whether giving up this seat hands it to the queue instead of returning it to the pool. A full
+ * How many of the seats being given up go to the queue rather than back to the pool. A full
  * class with people waiting does not become bookable again because one member dropped out — the
- * next person in line takes the spot, and the board should keep showing the class as full.
+ * next in line takes the spot, and the board should keep showing the class as full. Releasing
+ * two seats with one person waiting hands over one and returns the other, which is why this
+ * counts rather than answering yes or no.
  */
-export const goesToQueue = (c: StudioClass): boolean => c.waiting > 0
+export const seatsToQueue = (c: StudioClass, seats: number): number => Math.min(seats, c.waiting)
+
+/** A booking is the member plus at most one guest, so releasing it frees one seat or two. */
+export const seatsHeld = (guest: boolean): number => (guest ? 2 : 1)
 
 /** How many sittings ahead a "book the series" offer reaches. */
 export const SERIES_LIMIT = 4

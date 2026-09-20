@@ -234,6 +234,13 @@ export default function App() {
     [selectedClass, b.booked, b.alternatives, clock],
   )
 
+  const onGuest = useCallback(
+    (on: boolean) => {
+      if (selected) b.setGuest(selected, on)
+    },
+    [selected, b.setGuest],
+  )
+
   const onSeries = useCallback(() => {
     if (selectedClass) b.bookSeries(selectedClass)
   }, [selectedClass, b.bookSeries])
@@ -320,12 +327,14 @@ export default function App() {
               credits={b.credits}
               mine={!!(selected && b.booked[selected])}
               waitlisted={!!(selected && b.waitlist[selected])}
+              guest={!!(selected && b.guests[selected])}
               open={panelOpen}
               alternatives={alternatives}
               series={series}
               onToggle={b.toggle}
               onReschedule={onReschedule}
               onSeries={onSeries}
+              onGuest={onGuest}
               onShare={onShare}
               onCoach={onCoach}
               onClose={closePanel}

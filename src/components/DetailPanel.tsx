@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { COACHES, DESCRIPTIONS, TYPES, type CoachName } from '../data/catalog'
 import { DOW, MON, DAY_FULL, cancelDeadline, formatTime, isCancellable, isFull, spotsLeft, type StudioClass } from '../lib/schedule'
 import { downloadIcs, googleCalendarUrl } from '../lib/calendar'
-import { goesToQueue, queuePosition } from '../lib/booking'
+import { queuePosition } from '../lib/booking'
 import { useIsMobile } from '../hooks/useIsMobile'
 
 interface Props {
@@ -11,6 +11,8 @@ interface Props {
   credits: number
   mine: boolean
   waitlisted: boolean
+  /** Whether this booking is carrying a guest. */
+  guest: boolean
   open: boolean
   /** Other sittings of this class the booking could move to; empty unless `mine`. */
   alternatives: StudioClass[]
@@ -21,13 +23,14 @@ interface Props {
   onCoach: (name: CoachName) => void
   onReschedule: (fromId: string, toId: string) => void
   onSeries: () => void
+  onGuest: (on: boolean) => void
   onClose: () => void
 }
 
 const FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
 
 /** Sticky aside on desktop; slides up as a bottom sheet under 980px (see .panel in index.css). */
-export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternatives, series, onToggle, onReschedule, onSeries, onShare, onCoach, onClose }: Props) {
+export function DetailPanel({ c, now, credits, mine, waitlisted, guest, open, alternatives, series, onToggle, onReschedule, onSeries, onGuest, onShare, onCoach, onClose }: Props) {
   const panelRef = useRef<HTMLElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -154,7 +157,7 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
           {/* A full class shows the queue instead of the price, because the price is not the
               thing standing between the member and the class. */}
           <span>{full ? (waitlisted ? 'Your place' : 'Waiting') : 'Cost'}</span>
-          <b>{full ? (waitlisted ? `#${queuePosition(c)}` : `${c.waiting}`) : '1 credit'}</b>
+          <b>{full ? (waitlisted ? `#${queuePosition(c)}` : `${c.waiting}`) : guest ? '2 credits' : '1 credit'}</b>
         </div>
       </div>
       <div className="spots" aria-hidden="true">
@@ -199,6 +202,11 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
               onClick={() => (moving ? stopMoving() : setMoving(true))}
             >
               Reschedule
+            </button>
+          )}
+          {mine && cancellable && (
+            <button type="button" className={guest ? 'addcal on' : 'addcal'} onClick={() => onGuest(!guest)}>
+              {guest ? 'Guest coming · remove' : 'Bring a friend · 1 credit'}
             </button>
           )}
           {/* Offered for every class, not only a booked one: the point of a class URL is
@@ -277,7 +285,7 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
               : `Free cancellation closed at ${formatTime(deadline)} — cancelling now spends the credit.`}
             {/* Said before the tap, not after: giving the spot up is not undoable once somebody
                 else has it, and the member should know that while deciding. */}
-            {goesToQueue(c) && ` ${c.waiting} ${c.waiting === 1 ? 'person is' : 'people are'} waiting — your spot goes to the next in line.`}
+            {c.waiting > 0 && ` ${c.waiting} ${c.waiting === 1 ? 'person is' : 'people are'} waiting — your spot goes to the next in line.`}
           </small>
         )}
       </div>

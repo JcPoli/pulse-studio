@@ -10,7 +10,7 @@ import {
   isPast,
   type StudioClass,
 } from '../lib/schedule'
-import { SERIES_LIMIT, alternativesFor, clashWith, goesToQueue, queuePosition, seriesOf } from '../lib/booking'
+import { SERIES_LIMIT, alternativesFor, clashWith, queuePosition, seatsHeld, seatsToQueue, seriesOf } from '../lib/booking'
 import { seedAttendance, statsFrom, type Attendance } from '../lib/history'
 
 // Defined with the URL schema it has to survive a round trip through, and re-exported here so
@@ -27,6 +27,8 @@ export interface BookingState {
   attended: Attendance[]
   /** class id → seats this session handed to that queue, which shortens it. */
   promoted: Record<string, number>
+  /** Bookings the member brought somebody to. One guest per booking, so a flag is enough. */
+  guests: Record<string, true>
 }
 
 /**
@@ -40,8 +42,9 @@ type Action =
   | { type: 'book'; id: string; charge: boolean }
   | { type: 'book_many'; ids: string[] }
   | { type: 'cancel_many'; ids: string[] }
-  | { type: 'cancel'; id: string; refund: boolean; toQueue: boolean }
-  | { type: 'reschedule'; from: string; to: string; toQueue: boolean }
+  | { type: 'set_guest'; id: string; on: boolean }
+  | { type: 'cancel'; id: string; refund: boolean; seats: number; toQueue: number }
+  | { type: 'reschedule'; from: string; to: string; toQueue: number }
   | { type: 'join_waitlist'; id: string }
   | { type: 'leave_waitlist'; id: string }
   | { type: 'top_up'; amount: number }
@@ -83,14 +86,18 @@ export function reducer(s: BookingState, a: Action): BookingState {
     case 'cancel': {
       const booked = { ...s.booked }
       delete booked[a.id]
+      const guests = { ...s.guests }
+      delete guests[a.id]
       // A seat handed to the queue never returns to the pool, so the taken count stays where it
       // is and the class stays full. What changes is that the line behind it is one shorter.
       return {
         ...s,
-        credits: a.refund ? s.credits + 1 : s.credits,
+        // Every seat given up is refunded, or none is: the deadline is a property of the class.
+        credits: a.refund ? s.credits + a.seats : s.credits,
         booked,
-        taken: a.toQueue ? s.taken : { ...s.taken, [a.id]: (s.taken[a.id] ?? 0) - 1 },
-        promoted: a.toQueue ? { ...s.promoted, [a.id]: (s.promoted[a.id] ?? 0) + 1 } : s.promoted,
+        taken: { ...s.taken, [a.id]: (s.taken[a.id] ?? 0) - (a.seats - a.toQueue) },
+        promoted: a.toQueue > 0 ? { ...s.promoted, [a.id]: (s.promoted[a.id] ?? 0) + a.toQueue } : s.promoted,
+        guests,
       }
     }
     case 'reschedule': {
@@ -109,10 +116,22 @@ export function reducer(s: BookingState, a: Action): BookingState {
           // Same rule as a cancellation: if a queue is waiting on the class being left, the
           // vacated seat goes to the next person rather than back to the pool, so a full class
           // does not quietly become bookable because somebody moved out of it.
-          ...(a.toQueue ? {} : { [a.from]: (s.taken[a.from] ?? 0) - 1 }),
+          ...(a.toQueue > 0 ? {} : { [a.from]: (s.taken[a.from] ?? 0) - 1 }),
           [a.to]: (s.taken[a.to] ?? 0) + 1,
         },
-        promoted: a.toQueue ? { ...s.promoted, [a.from]: (s.promoted[a.from] ?? 0) + 1 } : s.promoted,
+        promoted: a.toQueue > 0 ? { ...s.promoted, [a.from]: (s.promoted[a.from] ?? 0) + a.toQueue } : s.promoted,
+      }
+    }
+    case 'set_guest': {
+      const guests = { ...s.guests }
+      if (a.on) guests[a.id] = true
+      else delete guests[a.id]
+      // A guest is a real body in the room: it costs a credit and takes a seat from the class.
+      return {
+        ...s,
+        credits: a.on ? s.credits - 1 : s.credits + 1,
+        taken: { ...s.taken, [a.id]: (s.taken[a.id] ?? 0) + (a.on ? 1 : -1) },
+        guests,
       }
     }
     case 'join_waitlist':
@@ -216,6 +235,7 @@ export function loadState(fromDate: string, template: StudioClass[]): BookingSta
       // Deliberately not restored: a promotion is the studio moving somebody else, and replaying
       // last week s queue shuffles onto this week s classes would be inventing history.
       promoted: {},
+      guests: flags(o.guests),
     }
   } catch {
     return null // unparseable, or storage blocked (private window, disabled site data)
@@ -232,7 +252,7 @@ function saveState(state: BookingState): void {
 
 /** Seed: two future bookings and one waitlist entry so the demo shows every state. */
 export function seed(classes: StudioClass[], now: Date): BookingState {
-  const state: BookingState = { credits: 6, taken: {}, booked: {}, waitlist: {}, attended: seedAttendance(now), promoted: {} }
+  const state: BookingState = { credits: 6, taken: {}, booked: {}, waitlist: {}, attended: seedAttendance(now), promoted: {}, guests: {} }
   const open = classes.filter((c) => !isPast(c, now) && !isFull(c))
   for (const i of [1, 4]) {
     const c = open[i]
@@ -335,16 +355,17 @@ export function useBooking(anchor: Date, weekOffset: number) {
         // instead of a confirmation step, and it has to put the seat back without charging,
         // since nothing was returned to charge against.
         const refund = isCancellable(c, at)
-        const toQueue = goesToQueue(c)
-        dispatch({ type: 'cancel', id, refund, toQueue })
-        const fate = toQueue ? ' · spot went to the waitlist' : ''
+        const seats = seatsHeld(!!state.guests[id])
+        const toQueue = seatsToQueue(c, seats)
+        dispatch({ type: 'cancel', id, refund, seats, toQueue })
+        const fate = toQueue > 0 ? ` · ${toQueue === seats ? 'spot went' : 'a spot went'} to the waitlist` : ''
         r = {
           ok: true,
           message: `${refund ? 'Cancelled · credit refunded' : 'Cancelled · credit spent'}${fate}`,
         }
         // Undoing a cancellation that fed the queue has to take the seat back off whoever got
         // it, which is the studio's call and not a member's. So there is no undo in that case.
-        if (!toQueue) {
+        if (toQueue === 0) {
           undo = () => {
             dispatch({ type: 'book', id, charge: refund })
             showToast(refund ? 'Booking restored' : 'Booking restored · credit still yours')
@@ -369,7 +390,7 @@ export function useBooking(anchor: Date, weekOffset: number) {
         r = { ok: true, message: `Booked ${c.name} · ${c.time}` }
         // A single tap spends a credit, so offer the exact inverse while the toast is up.
         undo = () => {
-          dispatch({ type: 'cancel', id, refund: true, toQueue: false })
+          dispatch({ type: 'cancel', id, refund: true, seats: 1, toQueue: 0 })
           showToast('Booking undone · credit refunded')
         }
       }
@@ -399,13 +420,18 @@ export function useBooking(anchor: Date, weekOffset: number) {
       let undo: (() => void) | undefined
       const clash = findClash(to, fromId)
       if (fromId === toId) r = { ok: false, message: "That's the class you're already in" }
+      // A move carries one seat. Moving a booking with a guest on it would need two spots at the
+      // far end, and the alternatives offered were only checked for one — so rather than move
+      // half a party, or silently leave the guest behind on a class nobody is booked into, this
+      // asks for the guest to come off first.
+      else if (state.guests[fromId]) r = { ok: false, message: 'Remove the guest before moving this booking' }
       else if (state.booked[toId]) r = { ok: false, message: "You're already booked into that one" }
       else if (isPast(to, at)) r = { ok: false, message: 'That class has already started' }
       else if (isFull(to)) r = { ok: false, message: 'That class filled up — pick another' }
       else if (!isCancellable(from, at)) r = { ok: false, message: 'Too late to move — under 2 hours to class' }
       else if (clash) r = { ok: false, message: `Clashes with ${clash.name} at ${clash.time}` }
       else {
-        const toQueue = goesToQueue(from)
+        const toQueue = seatsToQueue(from, 1)
         dispatch({ type: 'reschedule', from: fromId, to: toId, toQueue })
         onMoved?.(toId)
         r = { ok: true, message: `Moved to ${DOW[to.when.getDay()]} ${to.time}` }
@@ -413,9 +439,9 @@ export function useBooking(anchor: Date, weekOffset: number) {
         // the member's to take back, so this cannot fail on capacity.
         // As with a cancellation, a seat already handed to the queue is not the member to
         // take back, so a move out of a class with a line behind it is one way only.
-        if (!toQueue) {
+        if (toQueue === 0) {
           undo = () => {
-            dispatch({ type: 'reschedule', from: toId, to: fromId, toQueue: false })
+            dispatch({ type: 'reschedule', from: toId, to: fromId, toQueue: 0 })
             onMoved?.(fromId)
             showToast(`Moved back to ${DOW[from.when.getDay()]} ${from.time}`)
           }
@@ -465,6 +491,33 @@ export function useBooking(anchor: Date, weekOffset: number) {
     [allClasses, upcoming],
   )
 
+  /**
+   * Adds or drops the one guest a booking may carry. A guest is a real body in the room, so it
+   * costs a credit and takes a seat from the class — which is also why it can be refused for
+   * want of either.
+   */
+  const setGuest = useCallback(
+    (id: string, on: boolean): ToggleResult => {
+      const c = byId(id)
+      if (!c || !state.booked[id]) return { ok: false, message: 'Book the class first' }
+      if (on && isFull(c)) return { ok: false, message: 'No spot left to bring anyone into' }
+      if (on && state.credits <= 0) return { ok: false, message: 'No credits left — add a pack' }
+      if (!on && !isCancellable(c, new Date())) {
+        // The same deadline the member's own seat is under. Dropping a guest late would
+        // otherwise be a way to get a credit back that a cancellation could not.
+        return { ok: false, message: 'Too late to change — under 2 hours to class' }
+      }
+      dispatch({ type: 'set_guest', id, on })
+      const message = on ? 'Guest added · 1 credit' : 'Guest removed · credit refunded'
+      showToast(message, () => {
+        dispatch({ type: 'set_guest', id, on: !on })
+        showToast(on ? 'Guest removed' : 'Guest added again')
+      })
+      return { ok: true, message }
+    },
+    [byId, state.booked, state.credits, showToast],
+  )
+
   const topUp = useCallback(() => {
     dispatch({ type: 'top_up', amount: PACK_SIZE })
     showToast(`Added ${PACK_SIZE} credits`)
@@ -495,6 +548,8 @@ export function useBooking(anchor: Date, weekOffset: number) {
     alternatives,
     series,
     bookSeries,
+    setGuest,
+    guests: state.guests,
     SERIES_LIMIT,
     topUp,
     toast,
