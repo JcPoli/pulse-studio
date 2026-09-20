@@ -9,7 +9,8 @@ import { Membership } from './components/Membership'
 import { Toast } from './components/Toast'
 import { MAX_WEEK_OFFSET, useBooking, type Tab } from './hooks/useBooking'
 import { isMobile } from './hooks/useIsMobile'
-import { MON, isoDate } from './lib/schedule'
+import { MON, isPast, isoDate, startOfDay } from './lib/schedule'
+import { locationHref, parseLocation } from './lib/deeplink'
 import { EMPTY_FILTER, describeFilter, isEmptyFilter, matches, type ClassFilter } from './lib/filter'
 
 export default function App() {
@@ -45,10 +46,14 @@ export default function App() {
     if (isoDate(clock) !== isoDate(anchor)) setAnchor(clock)
   }, [clock, anchor])
 
-  const [weekOffset, setWeekOffset] = useState(0)
+  // Read once, at mount, from the link that opened the app. After this the URL is an output of
+  // state and never an input again — one direction only, so the two cannot fight.
+  const [entry] = useState(() => parseLocation(window.location.search, MAX_WEEK_OFFSET))
+
+  const [weekOffset, setWeekOffset] = useState(entry.weekOffset)
   const b = useBooking(anchor, weekOffset)
 
-  const [tab, setTab] = useState<Tab>('schedule')
+  const [tab, setTab] = useState<Tab>(entry.tab)
   const [filter, setFilter] = useState<ClassFilter>(EMPTY_FILTER)
   const [selected, setSelected] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -91,17 +96,54 @@ export default function App() {
     [b.reschedule],
   )
 
-  // Back / swipe-back while the sheet is up: our entry is already gone, so just close.
+  // Back / swipe-back while the sheet is up: our entry is already gone, so just close. The
+  // selection is dropped with it, which is what lets the URL effect below take `?c=` back off.
   useEffect(() => {
     const onPop = () => {
       if (!pushedRef.current) return
       pushedRef.current = false
       setPanelOpen(false)
+      setSelected(null)
       document.body.style.overflow = ''
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
+
+  // A class named in the opening link. Resolved here rather than in the initialiser because it
+  // has to be looked up in the horizon, and dropped quietly if it is not there: a link shared
+  // last week points at a class that no longer exists, and that should land on the schedule
+  // rather than on an empty panel. The week follows the class, so `?c=` alone is a whole link —
+  // there is no way to arrive with a class from week three while looking at week one.
+  const openedRef = useRef(false)
+  useEffect(() => {
+    if (openedRef.current || entry.classId === null) return
+    openedRef.current = true
+    const c = b.byId(entry.classId)
+    if (!c || isPast(c, new Date())) return
+    const days = Math.round((startOfDay(c.when).getTime() - startOfDay(anchor).getTime()) / 86_400_000)
+    setWeekOffset(Math.min(Math.max(Math.floor(days / 7), 0), MAX_WEEK_OFFSET))
+    onSelect(c.id)
+  }, [entry.classId, b, anchor, onSelect])
+
+  // Sharing is just handing over the address bar, since the effect below keeps it correct. The
+  // clipboard can refuse — a denied permission, an insecure context — and the fallback says
+  // where the link is rather than pretending the copy worked.
+  const onShare = useCallback(() => {
+    navigator.clipboard?.writeText(window.location.href).then(
+      () => b.showToast('Link copied'),
+      () => b.showToast('Copy blocked — the link is in the address bar'),
+    )
+  }, [b.showToast])
+
+  // The address bar mirrors the view: replace, never push, because the only history entry this
+  // app owns is the one the mobile sheet pushes for the Back gesture.
+  useEffect(() => {
+    const href = locationHref({ tab, weekOffset, classId: selected }, window.location.pathname)
+    if (href !== window.location.pathname + window.location.search) {
+      window.history.replaceState(window.history.state, '', href)
+    }
+  }, [tab, weekOffset, selected])
 
   const changeWeek = useCallback(
     (next: number) => {
@@ -258,6 +300,7 @@ export default function App() {
               alternatives={alternatives}
               onToggle={b.toggle}
               onReschedule={onReschedule}
+              onShare={onShare}
               onClose={closePanel}
             />
           </div>

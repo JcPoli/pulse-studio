@@ -12,7 +12,9 @@ import {
 } from '../lib/schedule'
 import { alternativesFor, clashWith } from '../lib/booking'
 
-export type Tab = 'schedule' | 'mine' | 'membership'
+// Defined with the URL schema it has to survive a round trip through, and re-exported here so
+// every consumer keeps importing it from the hook that owns the tab state.
+export type { Tab } from '../lib/deeplink'
 
 export interface BookingState {
   credits: number

@@ -51,6 +51,25 @@ describe('overlaps', () => {
   })
 })
 
+describe('buildClasses ids', () => {
+  it('needs no escaping in a URL', () => {
+    // The id travels in a query string, a DOM attribute selector and a storage key. If any
+    // generated id differed from its encoded form, the deep link for that class would break
+    // the moment somebody typed it by hand rather than letting URLSearchParams build it.
+    for (const c of ALL) expect(encodeURIComponent(c.id)).toBe(c.id.replace(/:/g, '%3A'))
+  })
+
+  it('collapses punctuation in a class name to a single dash', () => {
+    const ids = ALL.filter((c) => c.name === 'Core & Mobility').map((c) => c.id)
+    expect(ids.length).toBeGreaterThan(0)
+    for (const id of ids) expect(id.endsWith('_Core-Mobility')).toBe(true)
+  })
+
+  it('stays unique across the horizon', () => {
+    expect(new Set(ALL.map((c) => c.id)).size).toBe(ALL.length)
+  })
+})
+
 describe('isoDate', () => {
   it('reads local date parts, never a UTC shift', () => {
     // 23:30 local on the 21st is already the 22nd in UTC east of Greenwich, and 00:15 is still

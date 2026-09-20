@@ -55,7 +55,12 @@ export function buildClasses(week: Date[]): StudioClass[] {
     const slots = TEMPLATE[d.getDay()] ?? []
     for (const t of slots) {
       const [hh, mm] = t.time.split(':').map(Number)
-      const id = `${isoDate(d)}_${t.time}_${t.name.replace(/\s+/g, '-')}`
+      // Every run of non-word characters collapses to one dash, not just whitespace: "Core &
+      // Mobility" used to yield an id containing a bare `&`, which splits a query string in
+      // half and so made those two classes the only ones that could not be linked to. The id
+      // is a key in three places that all care — a URL, a DOM selector, a storage key — so it
+      // is kept to letters, digits, dashes and underscores at the source.
+      const id = `${isoDate(d)}_${t.time}_${t.name.replace(/\W+/g, '-')}`
       const taken = Math.min(hash(id) % (t.cap + 3), t.cap) // sometimes full → waitlist demo
       out.push({
         id,

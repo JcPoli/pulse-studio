@@ -14,6 +14,7 @@ interface Props {
   /** Other sittings of this class the booking could move to; empty unless `mine`. */
   alternatives: StudioClass[]
   onToggle: (id: string) => void
+  onShare: () => void
   onReschedule: (fromId: string, toId: string) => void
   onClose: () => void
 }
@@ -21,7 +22,7 @@ interface Props {
 const FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
 
 /** Sticky aside on desktop; slides up as a bottom sheet under 980px (see .panel in index.css). */
-export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternatives, onToggle, onReschedule, onClose }: Props) {
+export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternatives, onToggle, onReschedule, onShare, onClose }: Props) {
   const panelRef = useRef<HTMLElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -167,30 +168,38 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
       <button type="button" className={`cta ${cls}`} disabled={disabled} onClick={() => onToggle(c.id)}>
         {cta}
       </button>
-      {mine && (
-        <div className="postcta">
-          <div className="pcrow">
-            {cancellable && (
-              <button
-                type="button"
-                ref={moveRef}
-                className="addcal"
-                aria-expanded={moving}
-                aria-controls="resched"
-                onClick={() => (moving ? stopMoving() : setMoving(true))}
-              >
-                Reschedule
-              </button>
-            )}
-            <button type="button" className="addcal" onClick={() => downloadIcs(c)}>
-              Calendar file
+      <div className="postcta">
+        <div className="pcrow">
+          {mine && cancellable && (
+            <button
+              type="button"
+              ref={moveRef}
+              className="addcal"
+              aria-expanded={moving}
+              aria-controls="resched"
+              onClick={() => (moving ? stopMoving() : setMoving(true))}
+            >
+              Reschedule
             </button>
-            {/* A real link, not a scripted open: an in-app browser that silently swallows the
-                .ics blob download will still follow an anchor. */}
-            <a className="addcal" href={googleCalendarUrl(c)} target="_blank" rel="noopener noreferrer">
-              Google Calendar
-            </a>
-          </div>
+          )}
+          {/* Offered for every class, not only a booked one: the point of a class URL is
+              sending it to somebody who has not booked it yet. */}
+          <button type="button" className="addcal" onClick={onShare}>
+            Copy link
+          </button>
+          {mine && (
+            <>
+              <button type="button" className="addcal" onClick={() => downloadIcs(c)}>
+                Calendar file
+              </button>
+              {/* A real link, not a scripted open: an in-app browser that silently swallows the
+                  .ics blob download will still follow an anchor. */}
+              <a className="addcal" href={googleCalendarUrl(c)} target="_blank" rel="noopener noreferrer">
+                Google Calendar
+              </a>
+            </>
+          )}
+        </div>
           {/* Gated on `cancellable`, not just `moving`: the live clock can cross the two-hour
               deadline with the picker open, and the panel should not keep offering a move the
               hook would now refuse. */}
@@ -242,13 +251,14 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
               )}
             </div>
           )}
+        {mine && (
           <small>
             {cancellable
               ? `Free cancellation until ${formatTime(deadline)}`
               : `Free cancellation closed at ${formatTime(deadline)} — cancelling now spends the credit.`}
           </small>
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   )
 }
