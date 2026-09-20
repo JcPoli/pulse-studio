@@ -156,10 +156,15 @@ html { -webkit-text-size-adjust: 100%; }
   .spots i { display: block; height: 100%; background: var(--text-2); transition: width .3s; }
   .spots i.hot { background: var(--danger); }
   .panel p.d { color: var(--text-2); font-size: 13.5px; line-height: 1.65; }
-  .coach { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line-2); }
+  /* A button now, so it has to state the width and text alignment a div had for free. */
+  .coach { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line-2); transition: .15s; }
+  .coach:hover b { color: var(--lime); }
   .coach .av { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; font-family: var(--cond); font-weight: 800; font-size: 16px; color: #101214; flex: none; }
-  .coach b { display: block; font-size: 13.5px; }
+  /* The name now sits inside a wrapper <span>, which the rule below tints grey, so it has to
+     name its own colour instead of inheriting the panel's. */
+  .coach b { display: block; font-size: 13.5px; color: var(--text); transition: .15s; }
   .coach span { font-size: 12.5px; color: var(--text-3); line-height: 1.5; display: block; }
+  .coach em { display: block; font-style: normal; font-size: 11.5px; font-weight: 700; color: var(--lime); margin-top: 6px; }
   .cta { width: 100%; margin-top: 18px; padding: 15px; border-radius: 10px; font-family: var(--cond); font-weight: 800; text-transform: uppercase; font-size: 1.15rem; letter-spacing: .05em; transition: .15s; }
   .cta.book { background: var(--lime); color: var(--lime-ink); }
   .cta.book:hover { filter: brightness(1.08); }
@@ -237,6 +242,12 @@ html { -webkit-text-size-adjust: 100%; }
   .plan b { display: block; font-family: var(--cond); font-weight: 800; font-size: 1.6rem; line-height: 1; }
   .plan span { font-size: 12px; color: var(--text-3); display: block; margin-top: 4px; }
   .plan em { display: block; font-style: normal; font-size: 12px; color: var(--lime); font-weight: 700; margin-top: 8px; }
+  /* align-items: flex-end so each bar grows from the baseline; the empty weeks keep a 2px stub
+     so the strip reads as eight buckets rather than as a gap of unknown width. */
+  .strip { display: flex; align-items: flex-end; gap: 4px; height: 46px; margin: 4px 0 8px; }
+  .strip i { flex: 1; min-height: 2px; background: var(--line); border-radius: 2px 2px 0 0; }
+  .strip i.on { background: var(--lime); }
+  .striplabel { font-size: 12px; color: var(--text-3); margin-bottom: 14px; }
 
   .toast { position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom)); transform: translate(-50%, 16px); z-index: 60; background: var(--text); color: var(--bg); padding: 12px 18px; border-radius: 10px; font-size: 13.5px; font-weight: 600; opacity: 0; pointer-events: none; transition: .22s; white-space: nowrap; }
   /* pointer-events go live only while shown, so the Undo button is clickable but a hidden

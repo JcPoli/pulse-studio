@@ -9,6 +9,7 @@ import { Membership } from './components/Membership'
 import { Toast } from './components/Toast'
 import { MAX_WEEK_OFFSET, useBooking, type Tab } from './hooks/useBooking'
 import { isMobile } from './hooks/useIsMobile'
+import type { CoachName } from './data/catalog'
 import { MON, isPast, isoDate, startOfDay } from './lib/schedule'
 import { locationHref, parseLocation } from './lib/deeplink'
 import { EMPTY_FILTER, describeFilter, isEmptyFilter, matches, type ClassFilter } from './lib/filter'
@@ -125,6 +126,19 @@ export default function App() {
     setWeekOffset(Math.min(Math.max(Math.floor(days / 7), 0), MAX_WEEK_OFFSET))
     onSelect(c.id)
   }, [entry.classId, b, anchor, onSelect])
+
+  // Tapping the coach in the panel filters the board to them, clearing everything else: the
+  // question being asked is "what does Maya teach", not "what does Maya teach that also
+  // matches what I had narrowed down before". The panel closes because the answer is behind it.
+  const onCoach = useCallback(
+    (name: CoachName) => {
+      setFilter({ ...EMPTY_FILTER, coach: name })
+      setTab('schedule')
+      closePanel()
+      b.showToast(`Showing ${name}'s classes`)
+    },
+    [closePanel, b.showToast],
+  )
 
   // Sharing is just handing over the address bar, since the effect below keeps it correct. The
   // clipboard can refuse — a denied permission, an insecure context — and the fallback says
@@ -301,6 +315,7 @@ export default function App() {
               onToggle={b.toggle}
               onReschedule={onReschedule}
               onShare={onShare}
+              onCoach={onCoach}
               onClose={closePanel}
             />
           </div>
@@ -318,7 +333,7 @@ export default function App() {
             credits={b.credits}
             bookedCount={b.upcoming.length}
             waitlistCount={b.waitlisted.length}
-            favouriteType={b.favouriteType}
+            stats={b.stats}
             today={anchor}
             onTopUp={b.topUp}
             onPlanClick={() => b.showToast('Pack change is part of the production build')}

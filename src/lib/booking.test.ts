@@ -89,6 +89,7 @@ describe('reducer: reschedule', () => {
     taken: { [THU_HIIT.id]: 1 },
     booked: { [THU_HIIT.id]: true },
     waitlist: {},
+    attended: [],
   }
   const moved = reducer(base, { type: 'reschedule', from: THU_HIIT.id, to: SAT_HIIT.id })
 
@@ -133,6 +134,7 @@ describe('reducer: cancelling late', () => {
     taken: { [THU_HIIT.id]: 1 },
     booked: { [THU_HIIT.id]: true },
     waitlist: {},
+    attended: [],
   }
 
   it('gives up the seat either way', () => {

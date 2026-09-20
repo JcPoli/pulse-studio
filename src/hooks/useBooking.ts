@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { HORIZON_DAYS, PACK_SIZE, type ClassType } from '../data/catalog'
+import { HORIZON_DAYS, PACK_SIZE, TYPE_KEYS } from '../data/catalog'
 import {
   DOW,
   buildClasses,
@@ -11,6 +11,7 @@ import {
   type StudioClass,
 } from '../lib/schedule'
 import { alternativesFor, clashWith } from '../lib/booking'
+import { seedAttendance, statsFrom, type Attendance } from '../lib/history'
 
 // Defined with the URL schema it has to survive a round trip through, and re-exported here so
 // every consumer keeps importing it from the hook that owns the tab state.
@@ -22,6 +23,8 @@ export interface BookingState {
   taken: Record<string, number>
   booked: Record<string, true>
   waitlist: Record<string, true>
+  /** Classes already attended, oldest first. Only grows, and only when a booking falls behind. */
+  attended: Attendance[]
 }
 
 /**
@@ -91,6 +94,42 @@ export function reducer(s: BookingState, a: Action): BookingState {
 }
 
 const STORAGE_KEY = 'pulse-studio/booking/v1'
+const VERSION = 2
+
+/**
+ * Bookings whose date has passed, turned into attendance records instead of being deleted.
+ * `classes` is the horizon, which no longer contains them — so the type and the name come from
+ * the saved record where there is one, and a booking saved under v1 (ids only) is matched back
+ * to the template by the slug in its own id. One that cannot be matched is still counted: a
+ * class you attended is a fact, and losing it to a rename would be worse than a blank name.
+ */
+const isAttendance = (v: unknown): v is Attendance => {
+  if (typeof v !== 'object' || v === null) return false
+  const a = v as Record<string, unknown>
+  return (
+    typeof a.id === 'string' &&
+    typeof a.date === 'string' &&
+    typeof a.name === 'string' &&
+    (TYPE_KEYS as readonly string[]).includes(a.type as string)
+  )
+}
+
+function harvest(ids: string[], known: Attendance[], template: StudioClass[]): Attendance[] {
+  const byId = new Map(known.map((a) => [a.id, a]))
+  const bySlug = new Map(template.map((c) => [c.id.slice(11), c]))
+  const out: Attendance[] = [...known]
+  for (const id of ids) {
+    if (byId.has(id)) continue
+    const c = bySlug.get(id.slice(11))
+    out.push({
+      id,
+      date: id.slice(0, 10),
+      type: c?.type ?? 'hiit',
+      name: c?.name ?? id.slice(17).replace(/-/g, ' '),
+    })
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date))
+}
 
 /**
  * Restores state saved by an earlier visit, dropping any booking whose date is already behind
@@ -99,16 +138,24 @@ const STORAGE_KEY = 'pulse-studio/booking/v1'
  * date rather than by "is it in the week on screen" is what lets a booking three weeks out
  * survive a reload while you are looking at this week.
  */
-export function loadState(fromDate: string): BookingState | null {
+export function loadState(fromDate: string, template: StudioClass[]): BookingState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null) return null
     const o = parsed as Record<string, unknown>
-    if (o.v !== 1 || typeof o.credits !== 'number' || !Number.isFinite(o.credits)) return null
+    // v1 is still read rather than discarded: it had no attendance list, and its past bookings
+    // are exactly what harvest() turns into one, so upgrading gains a history instead of
+    // starting blank.
+    if (o.v !== 1 && o.v !== VERSION) return null
+    if (typeof o.credits !== 'number' || !Number.isFinite(o.credits)) return null
 
     const keep = (id: string): boolean => id.slice(0, 10) >= fromDate
+    const past = (value: unknown): string[] =>
+      typeof value === 'object' && value !== null
+        ? Object.keys(value as Record<string, unknown>).filter((id) => !keep(id))
+        : []
     const flags = (value: unknown): Record<string, true> => {
       const out: Record<string, true> = {}
       if (typeof value === 'object' && value !== null) {
@@ -131,6 +178,7 @@ export function loadState(fromDate: string): BookingState | null {
       taken,
       booked: flags(o.booked),
       waitlist: flags(o.waitlist),
+      attended: harvest(past(o.booked), Array.isArray(o.attended) ? o.attended.filter(isAttendance) : [], template),
     }
   } catch {
     return null // unparseable, or storage blocked (private window, disabled site data)
@@ -139,7 +187,7 @@ export function loadState(fromDate: string): BookingState | null {
 
 function saveState(state: BookingState): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: 1, ...state }))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: VERSION, ...state }))
   } catch {
     // Quota or a blocked store — the app works fine without persistence.
   }
@@ -147,7 +195,7 @@ function saveState(state: BookingState): void {
 
 /** Seed: two future bookings and one waitlist entry so the demo shows every state. */
 export function seed(classes: StudioClass[], now: Date): BookingState {
-  const state: BookingState = { credits: 6, taken: {}, booked: {}, waitlist: {} }
+  const state: BookingState = { credits: 6, taken: {}, booked: {}, waitlist: {}, attended: seedAttendance(now) }
   const open = classes.filter((c) => !isPast(c, now) && !isFull(c))
   for (const i of [1, 4]) {
     const c = open[i]
@@ -188,7 +236,7 @@ export function useBooking(anchor: Date, weekOffset: number) {
   const [state, dispatch] = useReducer(
     reducer,
     undefined,
-    () => loadState(isoDate(anchor)) ?? seed(baseClasses, anchor),
+    () => loadState(isoDate(anchor), baseClasses) ?? seed(baseClasses, anchor),
   )
 
   useEffect(() => {
@@ -337,25 +385,22 @@ export function useBooking(anchor: Date, weekOffset: number) {
     () => allClasses.filter((c) => state.waitlist[c.id]).sort((a, b) => a.when.getTime() - b.when.getTime()),
     [allClasses, state.waitlist],
   )
-  const favouriteType = useMemo<ClassType | null>(() => {
-    const count = new Map<ClassType, number>()
-    for (const c of upcoming) count.set(c.type, (count.get(c.type) ?? 0) + 1)
-    let best: ClassType | null = null
-    let n = 0
-    for (const [t, k] of count) if (k > n) { best = t; n = k }
-    return best
-  }, [upcoming])
+
+
+  /** Derived, never stored: the records are the facts, the numbers are a reading of them. */
+  const stats = useMemo(() => statsFrom(state.attended, anchor), [state.attended, anchor])
 
   return {
     week,
     classes,
     byId,
+    attended: state.attended,
+    stats,
     credits: state.credits,
     booked: state.booked,
     waitlist: state.waitlist,
     upcoming,
     waitlisted,
-    favouriteType,
     toggle,
     reschedule,
     alternatives,

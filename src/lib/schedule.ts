@@ -25,6 +25,16 @@ export const isoDate = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth
 
 export const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate())
 
+/**
+ * The inverse of `isoDate`, built from parts rather than parsed. `new Date('2026-09-21')` is
+ * read as UTC midnight and lands on the 20th anywhere west of Greenwich, which would put an
+ * attendance record in the wrong week.
+ */
+export function parseIsoDate(s: string): Date {
+  const [y, m, d] = s.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
 /** FNV-1a 32-bit — Math.imul keeps it exact (plain multiply loses precision past 2^53). */
 export function hash(s: string): number {
   let h = 2166136261

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { COACHES, DESCRIPTIONS, TYPES } from '../data/catalog'
+import { COACHES, DESCRIPTIONS, TYPES, type CoachName } from '../data/catalog'
 import { DOW, MON, DAY_FULL, cancelDeadline, formatTime, isCancellable, isFull, spotsLeft, type StudioClass } from '../lib/schedule'
 import { downloadIcs, googleCalendarUrl } from '../lib/calendar'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -15,6 +15,7 @@ interface Props {
   alternatives: StudioClass[]
   onToggle: (id: string) => void
   onShare: () => void
+  onCoach: (name: CoachName) => void
   onReschedule: (fromId: string, toId: string) => void
   onClose: () => void
 }
@@ -22,7 +23,7 @@ interface Props {
 const FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
 
 /** Sticky aside on desktop; slides up as a bottom sheet under 980px (see .panel in index.css). */
-export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternatives, onToggle, onReschedule, onShare, onClose }: Props) {
+export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternatives, onToggle, onReschedule, onShare, onCoach, onClose }: Props) {
   const panelRef = useRef<HTMLElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -154,17 +155,21 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
         <i className={hot ? 'hot' : undefined} style={{ width: `${(c.taken / c.cap) * 100}%` }} />
       </div>
       <p className="d">{DESCRIPTIONS[c.type]}</p>
-      <div className="coach">
-        <div className="av" style={{ background: coach.color }} aria-hidden="true">
+      {/* The coach block became a button rather than gaining a page of its own. The board can
+          already filter by coach, and "show me everything Maya teaches" is that filter — a
+          separate coach view would have been a second way to render the same answer. */}
+      <button type="button" className="coach" onClick={() => onCoach(c.coach)}>
+        <span className="av" style={{ background: coach.color }} aria-hidden="true">
           {c.coach.slice(0, 2).toUpperCase()}
-        </div>
-        <div>
+        </span>
+        <span>
           <b>
             {c.coach} · {coach.role}
           </b>
           <span>{coach.bio}</span>
-        </div>
-      </div>
+          <em>See all {c.coach}'s classes</em>
+        </span>
+      </button>
       <button type="button" className={`cta ${cls}`} disabled={disabled} onClick={() => onToggle(c.id)}>
         {cta}
       </button>

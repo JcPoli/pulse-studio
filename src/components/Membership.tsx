@@ -1,11 +1,12 @@
-import { PACK_SIZE, TYPES, type ClassType } from '../data/catalog'
+import { PACK_SIZE, TYPES } from '../data/catalog'
 import { MON } from '../lib/schedule'
+import { HISTORY_WEEKS, type Stats } from '../lib/history'
 
 interface Props {
   credits: number
   bookedCount: number
   waitlistCount: number
-  favouriteType: ClassType | null
+  stats: Stats
   today: Date
   onTopUp: () => void
   onPlanClick: () => void
@@ -17,7 +18,11 @@ const PLANS = [
   { size: '∞', desc: 'monthly unlimited · ₱4,900', note: 'Popular', current: false },
 ]
 
-export function Membership({ credits, bookedCount, waitlistCount, favouriteType, today, onTopUp, onPlanClick }: Props) {
+export function Membership({ credits, bookedCount, waitlistCount, stats, today, onTopUp, onPlanClick }: Props) {
+  // The favourite comes from what the member has actually attended, not from what is booked:
+  // three classes ahead of you is an intention, forty behind you is a preference.
+  const favourite = stats.favourite
+  const busiest = Math.max(...stats.weeks)
   const used = Math.max(0, PACK_SIZE - credits)
   const extra = credits > PACK_SIZE ? credits - PACK_SIZE : 0
   const renews = `${MON[(today.getMonth() + 1) % 12]} 1`
@@ -57,8 +62,34 @@ export function Membership({ credits, bookedCount, waitlistCount, favouriteType,
         </div>
         <div className="card">
           <h4>Activity</h4>
+          {/* Bars, not a line: eight discrete weeks is a count per bucket, and a line between
+              them would imply a value on the days in between. Scaled to the member's own best
+              week, because the question is "how does this week compare with how I usually
+              train", not "how do I compare with the studio". */}
+          <div className="strip" aria-hidden="true">
+            {stats.weeks.map((n, i) => (
+              <i key={i} className={n > 0 ? 'on' : undefined} style={{ height: `${busiest > 0 ? (n / busiest) * 100 : 0}%` }} />
+            ))}
+          </div>
+          <p className="striplabel">
+            {stats.total > 0
+              ? `${stats.weeks.reduce((a, n) => a + n, 0)} classes in the last ${HISTORY_WEEKS} weeks`
+              : 'No classes attended yet'}
+          </p>
           <div className="stat">
-            <span>Booked this week</span>
+            <span>Attended, all time</span>
+            <b className="num">{stats.total}</b>
+          </div>
+          <div className="stat">
+            <span>This month</span>
+            <b className="num">{stats.thisMonth}</b>
+          </div>
+          <div className="stat">
+            <span>Weekly streak</span>
+            <b className="num">{stats.streakWeeks > 0 ? `${stats.streakWeeks} weeks` : '—'}</b>
+          </div>
+          <div className="stat">
+            <span>Booked ahead</span>
             <b className="num">{bookedCount}</b>
           </div>
           <div className="stat">
@@ -67,11 +98,7 @@ export function Membership({ credits, bookedCount, waitlistCount, favouriteType,
           </div>
           <div className="stat">
             <span>Favourite type</span>
-            <b>{favouriteType ? TYPES[favouriteType].label : '—'}</b>
-          </div>
-          <div className="stat">
-            <span>Member since</span>
-            <b>Mar 2026</b>
+            <b>{favourite ? TYPES[favourite].label : '—'}</b>
           </div>
           <h4 style={{ marginTop: 22 }}>Packs</h4>
           <div className="plans">
