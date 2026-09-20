@@ -1,0 +1,15 @@
+{
+  "name": "Pulse Studio",
+  "short_name": "Pulse",
+  "description": "Weekly class timetable and membership booking.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#101214",
+  "theme_color": "#101214",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

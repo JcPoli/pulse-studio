@@ -6,6 +6,11 @@
     <meta name="theme-color" content="#101214" />
     <meta name="description" content="Pulse Studio — weekly class timetable and membership booking for a gym, yoga or dance studio." />
     <title>Pulse Studio — weekly timetable</title>
+    <!-- Relative, not rooted: the manifest, its icon and the worker all have to resolve under
+         both deploys — '/' on Vercel and '/pulse-studio/' on GitHub Pages. -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />

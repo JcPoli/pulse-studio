@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Pulse Studio">
+  <!-- The brand mark from .brand .mark in index.css: a lime tile with its bottom-right corner
+       cut away, and the P set in the same condensed weight. Drawn as a path rather than clipped
+       so it renders identically wherever an icon gets rasterised. -->
+  <path d="M0 0H512V358.4L358.4 512H0Z" fill="#C8F04D"/>
+  <text x="256" y="368" font-family="Barlow Condensed, Arial Narrow, sans-serif" font-size="384"
+        font-weight="800" text-anchor="middle" fill="#15200A">P</text>
+</svg>
