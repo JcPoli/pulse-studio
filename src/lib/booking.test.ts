@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ALTERNATIVES_LIMIT, alternativesFor, clashWith } from './booking'
+import { ALTERNATIVES_LIMIT, alternativesFor, clashWith, goesToQueue, queuePosition } from './booking'
 import { buildClasses, buildDays, isFull, isPast, type StudioClass } from './schedule'
 import { reducer, type BookingState } from '../hooks/useBooking'
 
@@ -90,8 +90,9 @@ describe('reducer: reschedule', () => {
     booked: { [THU_HIIT.id]: true },
     waitlist: {},
     attended: [],
+    promoted: {},
   }
-  const moved = reducer(base, { type: 'reschedule', from: THU_HIIT.id, to: SAT_HIIT.id })
+  const moved = reducer(base, { type: 'reschedule', from: THU_HIIT.id, to: SAT_HIIT.id, toQueue: false })
 
   it('moves the seat', () => {
     expect(moved.booked[THU_HIIT.id]).toBeUndefined()
@@ -108,7 +109,7 @@ describe('reducer: reschedule', () => {
   })
 
   it('is undone exactly by the same move backwards', () => {
-    const back = reducer(moved, { type: 'reschedule', from: SAT_HIIT.id, to: THU_HIIT.id })
+    const back = reducer(moved, { type: 'reschedule', from: SAT_HIIT.id, to: THU_HIIT.id, toQueue: false })
     expect(back.booked).toEqual(base.booked)
     expect(back.credits).toBe(base.credits)
     expect(back.taken[THU_HIIT.id]).toBe(1)
@@ -116,7 +117,7 @@ describe('reducer: reschedule', () => {
   })
 
   it('avoids the credit flash that cancel-then-book would have caused', () => {
-    const half = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: true })
+    const half = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: true, toQueue: false })
     expect(half.credits).toBe(7) // the intermediate state a single action exists to avoid
     expect(reducer(half, { type: 'book', id: SAT_HIIT.id, charge: true }).credits).toBe(6)
     expect(moved.credits).toBe(6)
@@ -124,7 +125,7 @@ describe('reducer: reschedule', () => {
 
   it('is not a way to spend a credit the member does not have', () => {
     const broke: BookingState = { ...base, credits: 0 }
-    expect(reducer(broke, { type: 'reschedule', from: THU_HIIT.id, to: SAT_HIIT.id }).credits).toBe(0)
+    expect(reducer(broke, { type: 'reschedule', from: THU_HIIT.id, to: SAT_HIIT.id, toQueue: false }).credits).toBe(0)
   })
 })
 
@@ -135,24 +136,25 @@ describe('reducer: cancelling late', () => {
     booked: { [THU_HIIT.id]: true },
     waitlist: {},
     attended: [],
+    promoted: {},
   }
 
   it('gives up the seat either way', () => {
     for (const refund of [true, false]) {
-      const out = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund })
+      const out = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund, toQueue: false })
       expect(out.booked[THU_HIIT.id]).toBeUndefined()
       expect(out.taken[THU_HIIT.id]).toBe(0) // the spot goes back to the studio regardless
     }
   })
 
   it('withholds the credit only when the window has closed', () => {
-    expect(reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: true }).credits).toBe(7)
-    expect(reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: false }).credits).toBe(6)
+    expect(reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: true, toQueue: false }).credits).toBe(7)
+    expect(reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: false, toQueue: false }).credits).toBe(6)
   })
 
   it('restores a late cancellation without charging again', () => {
     // Undo has to be exact: nothing was refunded, so nothing may be taken.
-    const late = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: false })
+    const late = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: false, toQueue: false })
     const back = reducer(late, { type: 'book', id: THU_HIIT.id, charge: false })
     expect(back.credits).toBe(base.credits)
     expect(back.booked[THU_HIIT.id]).toBe(true)
@@ -160,15 +162,93 @@ describe('reducer: cancelling late', () => {
   })
 
   it('restores an in-window cancellation by spending the refund back', () => {
-    const early = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: true })
+    const early = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: true, toQueue: false })
     const back = reducer(early, { type: 'book', id: THU_HIIT.id, charge: true })
     expect(back.credits).toBe(base.credits)
     expect(back.taken[THU_HIIT.id]).toBe(1)
   })
 
   it('cannot be used to mint a credit by cancelling late and rebooking free', () => {
-    const late = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: false })
+    const late = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: false, toQueue: false })
     const rebooked = reducer(late, { type: 'book', id: THU_HIIT.id, charge: true })
     expect(rebooked.credits).toBe(5) // paying again, because the first credit was forfeited
+  })
+})
+
+describe('the queue behind a full class', () => {
+  const FULL = ALL.find((c) => isFull(c))!
+  const OPEN = ALL.find((c) => !isFull(c) && c.waiting === 0)!
+
+  it('only forms behind a class that is actually full', () => {
+    for (const c of ALL) {
+      if (!isFull(c)) expect(c.waiting).toBe(0)
+      else expect(c.waiting).toBeGreaterThan(0)
+    }
+  })
+
+  it('puts the member at the back of the line', () => {
+    expect(queuePosition(FULL)).toBe(FULL.waiting + 1)
+    expect(queuePosition(OPEN)).toBe(1) // nobody ahead, so first
+  })
+
+  it('sends a released seat to the queue only when there is one', () => {
+    expect(goesToQueue(FULL)).toBe(true)
+    expect(goesToQueue(OPEN)).toBe(false)
+  })
+
+  it('keeps a full class full when a member drops out of it', () => {
+    // The whole point. Before this, cancelling out of a full class put the spot back in the
+    // pool and the class went bookable again, jumping everyone who had been waiting for it.
+    const held: BookingState = {
+      credits: 6,
+      taken: { [FULL.id]: 1 },
+      booked: { [FULL.id]: true },
+      waitlist: {},
+      attended: [],
+      promoted: {},
+    }
+    const after = reducer(held, { type: 'cancel', id: FULL.id, refund: true, toQueue: true })
+    expect(after.booked[FULL.id]).toBeUndefined()
+    expect(after.credits).toBe(7)
+    expect(after.taken[FULL.id]).toBe(1) // the seat stayed taken, by somebody else
+    expect(after.promoted[FULL.id]).toBe(1) // and the line is one shorter
+  })
+
+  it('shortens the line by exactly one seat per release', () => {
+    let s: BookingState = { credits: 6, taken: {}, booked: {}, waitlist: {}, attended: [], promoted: {} }
+    for (let i = 1; i <= 3; i++) {
+      s = reducer(s, { type: 'cancel', id: FULL.id, refund: false, toQueue: true })
+      expect(s.promoted[FULL.id]).toBe(i)
+    }
+  })
+
+  it('returns the seat to the pool when nobody is waiting', () => {
+    const held: BookingState = {
+      credits: 6,
+      taken: { [OPEN.id]: 1 },
+      booked: { [OPEN.id]: true },
+      waitlist: {},
+      attended: [],
+      promoted: {},
+    }
+    const after = reducer(held, { type: 'cancel', id: OPEN.id, refund: true, toQueue: false })
+    expect(after.taken[OPEN.id]).toBe(0)
+    expect(after.promoted[OPEN.id]).toBeUndefined()
+  })
+
+  it('applies the same rule to the class a booking moves away from', () => {
+    const held: BookingState = {
+      credits: 6,
+      taken: { [FULL.id]: 1 },
+      booked: { [FULL.id]: true },
+      waitlist: {},
+      attended: [],
+      promoted: {},
+    }
+    const moved = reducer(held, { type: 'reschedule', from: FULL.id, to: OPEN.id, toQueue: true })
+    expect(moved.taken[FULL.id]).toBe(1) // not given back
+    expect(moved.taken[OPEN.id]).toBe(1) // the new seat is taken
+    expect(moved.promoted[FULL.id]).toBe(1)
+    expect(moved.credits).toBe(6) // still one seat, still no money moved
   })
 })

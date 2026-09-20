@@ -47,3 +47,16 @@ export function alternativesFor(
     )
     .slice(0, limit)
 }
+
+/**
+ * The member's place in line, counting from one: everyone still waiting, and then them. Joining
+ * always goes to the back, which is the only honest thing a queue can do.
+ */
+export const queuePosition = (c: StudioClass): number => c.waiting + 1
+
+/**
+ * Whether giving up this seat hands it to the queue instead of returning it to the pool. A full
+ * class with people waiting does not become bookable again because one member dropped out — the
+ * next person in line takes the spot, and the board should keep showing the class as full.
+ */
+export const goesToQueue = (c: StudioClass): boolean => c.waiting > 0

@@ -10,6 +10,8 @@ export interface StudioClass {
   mins: number
   cap: number
   taken: number
+  /** How many are already in the queue ahead of the member. Zero unless the class is full. */
+  waiting: number
   when: Date
   startMin: number // minutes since midnight
 }
@@ -72,6 +74,9 @@ export function buildClasses(week: Date[]): StudioClass[] {
       // is kept to letters, digits, dashes and underscores at the source.
       const id = `${isoDate(d)}_${t.time}_${t.name.replace(/\W+/g, '-')}`
       const taken = Math.min(hash(id) % (t.cap + 3), t.cap) // sometimes full → waitlist demo
+      // A full class has a queue behind it, seeded from the id like the taken count, so that
+      // "join the waitlist" can say where in line you land instead of just acknowledging it.
+      const waiting = taken >= t.cap ? (hash(`${id}/q`) % 4) + 1 : 0
       out.push({
         id,
         date: isoDate(d),
@@ -82,6 +87,7 @@ export function buildClasses(week: Date[]): StudioClass[] {
         mins: t.mins,
         cap: t.cap,
         taken,
+        waiting,
         when: new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm),
         startMin: hh * 60 + mm,
       })

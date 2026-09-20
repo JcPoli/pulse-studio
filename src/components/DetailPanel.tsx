@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { COACHES, DESCRIPTIONS, TYPES, type CoachName } from '../data/catalog'
 import { DOW, MON, DAY_FULL, cancelDeadline, formatTime, isCancellable, isFull, spotsLeft, type StudioClass } from '../lib/schedule'
 import { downloadIcs, googleCalendarUrl } from '../lib/calendar'
+import { goesToQueue, queuePosition } from '../lib/booking'
 import { useIsMobile } from '../hooks/useIsMobile'
 
 interface Props {
@@ -111,7 +112,7 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
     cta = 'Leave waitlist'
     cls = 'cancel'
   } else if (full) {
-    cta = 'Join waitlist'
+    cta = `Join waitlist · #${queuePosition(c)}`
     cls = 'wait'
   } else if (credits <= 0) {
     cta = 'No credits left'
@@ -147,8 +148,10 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
           <b className={hot ? 'warn' : undefined}>{full ? 'Full' : `${left} of ${c.cap}`}</b>
         </div>
         <div>
-          <span>Cost</span>
-          <b>1 credit</b>
+          {/* A full class shows the queue instead of the price, because the price is not the
+              thing standing between the member and the class. */}
+          <span>{full ? (waitlisted ? 'Your place' : 'Waiting') : 'Cost'}</span>
+          <b>{full ? (waitlisted ? `#${queuePosition(c)}` : `${c.waiting}`) : '1 credit'}</b>
         </div>
       </div>
       <div className="spots" aria-hidden="true">
@@ -261,6 +264,9 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
             {cancellable
               ? `Free cancellation until ${formatTime(deadline)}`
               : `Free cancellation closed at ${formatTime(deadline)} — cancelling now spends the credit.`}
+            {/* Said before the tap, not after: giving the spot up is not undoable once somebody
+                else has it, and the member should know that while deciding. */}
+            {goesToQueue(c) && ` ${c.waiting} ${c.waiting === 1 ? 'person is' : 'people are'} waiting — your spot goes to the next in line.`}
           </small>
         )}
       </div>
