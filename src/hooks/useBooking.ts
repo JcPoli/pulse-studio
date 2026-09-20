@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { PACK_SIZE, type ClassType } from '../data/catalog'
+import { HORIZON_DAYS, PACK_SIZE, type ClassType } from '../data/catalog'
 import {
   buildClasses,
-  buildWeek,
+  buildDays,
   isCancellable,
   isFull,
+  isoDate,
   isPast,
   type StudioClass,
 } from '../lib/schedule'
@@ -52,11 +53,13 @@ export function reducer(s: BookingState, a: Action): BookingState {
 const STORAGE_KEY = 'pulse-studio/booking/v1'
 
 /**
- * Restores state saved by an earlier visit, dropping any class id that is not in the current
- * week. Ids carry their date, so a booking for a day that has since passed simply disappears —
- * and deliberately does NOT refund its credit, because that class was attended.
+ * Restores state saved by an earlier visit, dropping any booking whose date is already behind
+ * us. Ids are prefixed with their local date, so this is a string compare on an ISO date — and
+ * it deliberately does NOT refund those credits, because that class was attended. Pruning by
+ * date rather than by "is it in the week on screen" is what lets a booking three weeks out
+ * survive a reload while you are looking at this week.
  */
-export function loadState(validIds: Set<string>): BookingState | null {
+export function loadState(fromDate: string): BookingState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
@@ -65,11 +68,12 @@ export function loadState(validIds: Set<string>): BookingState | null {
     const o = parsed as Record<string, unknown>
     if (o.v !== 1 || typeof o.credits !== 'number' || !Number.isFinite(o.credits)) return null
 
+    const keep = (id: string): boolean => id.slice(0, 10) >= fromDate
     const flags = (value: unknown): Record<string, true> => {
       const out: Record<string, true> = {}
       if (typeof value === 'object' && value !== null) {
         for (const id of Object.keys(value as Record<string, unknown>)) {
-          if (validIds.has(id)) out[id] = true
+          if (keep(id)) out[id] = true
         }
       }
       return out
@@ -79,7 +83,7 @@ export function loadState(validIds: Set<string>): BookingState | null {
       const src = o.taken as Record<string, unknown>
       for (const id of Object.keys(src)) {
         const n = src[id]
-        if (validIds.has(id) && typeof n === 'number' && Number.isFinite(n)) taken[id] = n
+        if (keep(id) && typeof n === 'number' && Number.isFinite(n)) taken[id] = n
       }
     }
     return {
@@ -127,30 +131,41 @@ export interface ToastState {
   undo?: () => void
 }
 
+/** Highest `weekOffset` the generated horizon can actually fill. */
+export const MAX_WEEK_OFFSET = Math.floor(HORIZON_DAYS / 7) - 1
+
 /**
- * `anchor` fixes which seven days the board shows, so the grid never reshuffles under the user.
+ * `anchor` fixes the first day of the horizon, so the grid never reshuffles under the user.
  * Anything time-sensitive (past, cancellable) reads the clock fresh instead — see `toggle`.
+ *
+ * Classes are generated for the whole horizon, not just the week on screen: `classes` is the
+ * board's slice of it, while bookings, the waitlist and `byId` span all of it, so browsing to
+ * another week never hides what you have booked.
  */
-export function useBooking(anchor: Date) {
-  const week = useMemo(() => buildWeek(anchor), [anchor])
-  const baseClasses = useMemo(() => buildClasses(week), [week])
-  const validIds = useMemo(() => new Set(baseClasses.map((c) => c.id)), [baseClasses])
+export function useBooking(anchor: Date, weekOffset: number) {
+  const horizon = useMemo(() => buildDays(anchor, HORIZON_DAYS), [anchor])
+  const baseClasses = useMemo(() => buildClasses(horizon), [horizon])
   const [state, dispatch] = useReducer(
     reducer,
     undefined,
-    () => loadState(validIds) ?? seed(baseClasses, anchor),
+    () => loadState(isoDate(anchor)) ?? seed(baseClasses, anchor),
   )
 
   useEffect(() => {
     saveState(state)
   }, [state])
 
-  /** Classes with the member's own effect on capacity applied. */
-  const classes = useMemo<StudioClass[]>(
+  /** Every class in the horizon, with the member's own effect on capacity applied. */
+  const allClasses = useMemo<StudioClass[]>(
     () => baseClasses.map((c) => ({ ...c, taken: c.taken + (state.taken[c.id] ?? 0) })),
     [baseClasses, state.taken],
   )
-  const byId = useCallback((id: string) => classes.find((c) => c.id === id), [classes])
+  const week = useMemo(() => buildDays(anchor, 7, weekOffset * 7), [anchor, weekOffset])
+  const classes = useMemo<StudioClass[]>(() => {
+    const keys = new Set(week.map(isoDate))
+    return allClasses.filter((c) => keys.has(c.date))
+  }, [allClasses, week])
+  const byId = useCallback((id: string) => allClasses.find((c) => c.id === id), [allClasses])
 
   const [toast, setToast] = useState<ToastState | null>(null)
   const toastTimer = useRef<number | undefined>(undefined)
@@ -206,12 +221,12 @@ export function useBooking(anchor: Date) {
   }, [showToast])
 
   const upcoming = useMemo(
-    () => classes.filter((c) => state.booked[c.id]).sort((a, b) => a.when.getTime() - b.when.getTime()),
-    [classes, state.booked],
+    () => allClasses.filter((c) => state.booked[c.id]).sort((a, b) => a.when.getTime() - b.when.getTime()),
+    [allClasses, state.booked],
   )
   const waitlisted = useMemo(
-    () => classes.filter((c) => state.waitlist[c.id]).sort((a, b) => a.when.getTime() - b.when.getTime()),
-    [classes, state.waitlist],
+    () => allClasses.filter((c) => state.waitlist[c.id]).sort((a, b) => a.when.getTime() - b.when.getTime()),
+    [allClasses, state.waitlist],
   )
   const favouriteType = useMemo<ClassType | null>(() => {
     const count = new Map<ClassType, number>()

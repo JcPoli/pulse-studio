@@ -35,15 +35,18 @@ export function hash(s: string): number {
   return h
 }
 
-/** Today plus the next six days. */
-export function buildWeek(today: Date): Date[] {
-  const base = startOfDay(today)
-  return Array.from({ length: 7 }, (_, i) => {
+/** `count` consecutive days starting `offsetDays` after the given day. */
+export function buildDays(from: Date, count: number, offsetDays = 0): Date[] {
+  const base = startOfDay(from)
+  return Array.from({ length: count }, (_, i) => {
     const d = new Date(base.getTime())
-    d.setDate(base.getDate() + i)
+    d.setDate(base.getDate() + offsetDays + i)
     return d
   })
 }
+
+/** Today plus the next six days. */
+export const buildWeek = (today: Date): Date[] => buildDays(today, 7)
 
 /** Deterministic demo schedule for the given days; taken counts seeded from the id. */
 export function buildClasses(week: Date[]): StudioClass[] {

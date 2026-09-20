@@ -106,6 +106,13 @@ export const TEMPLATE: Record<number, TemplateSlot[]> = {
 
 export const PACK_SIZE = 10
 export const CANCEL_WINDOW_MS = 2 * 60 * 60 * 1000
+/** Fallback bounds only — the board derives its real range from the week's classes. */
 export const BOARD_START_HOUR = 6
 export const BOARD_END_HOUR = 21
 export const HOUR_PX = 68
+/** Height a collapsed run of empty hours shrinks to. */
+export const COLLAPSED_PX = 26
+/** An empty run shorter than this stays at full height; collapsing it would gain nothing. */
+export const MIN_COLLAPSE_HOURS = 2
+/** How far ahead classes are generated, so bookings survive browsing between weeks. */
+export const HORIZON_DAYS = 28

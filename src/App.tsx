@@ -7,13 +7,13 @@ import { DetailPanel } from './components/DetailPanel'
 import { MyClasses } from './components/MyClasses'
 import { Membership } from './components/Membership'
 import { Toast } from './components/Toast'
-import { useBooking, type Tab } from './hooks/useBooking'
+import { MAX_WEEK_OFFSET, useBooking, type Tab } from './hooks/useBooking'
 import { isMobile } from './hooks/useIsMobile'
 import { TYPES } from './data/catalog'
 import { MON, isoDate } from './lib/schedule'
 
 export default function App() {
-  // `anchor` fixes which seven days the board shows, so the grid never reshuffles mid-booking.
+  // `anchor` fixes the first day of the generated horizon, so the grid never reshuffles.
   const [anchor] = useState(() => new Date())
   // `clock` is the live one: it greys out classes as they start, walks the now-line down the
   // board, and closes the cancellation window. It only re-renders on a minute boundary.
@@ -29,7 +29,8 @@ export default function App() {
     return () => window.clearInterval(tick)
   }, [])
 
-  const b = useBooking(anchor)
+  const [weekOffset, setWeekOffset] = useState(0)
+  const b = useBooking(anchor, weekOffset)
 
   const [tab, setTab] = useState<Tab>('schedule')
   const [filter, setFilter] = useState<TypeFilter>('all')
@@ -76,6 +77,18 @@ export default function App() {
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
+
+  const changeWeek = useCallback(
+    (next: number) => {
+      if (next < 0 || next > MAX_WEEK_OFFSET) return
+      setWeekOffset(next)
+      setDayIndex(0)
+      setSelected(null)
+      closePanel()
+      colsRef.current?.scrollTo({ left: 0 })
+    },
+    [closePanel],
+  )
 
   const onTab = useCallback(
     (t: Tab) => {
@@ -152,9 +165,29 @@ export default function App() {
           <div className="shead">
             <div>
               <h1>
-                This <span>week</span>
+                {weekOffset === 0 ? 'This' : weekOffset === 1 ? 'Next' : `In ${weekOffset}`} <span>week{weekOffset > 1 ? 's' : ''}</span>
               </h1>
-              <p>{range}</p>
+              <div className="weeknav">
+                <button
+                  type="button"
+                  className="arrow"
+                  aria-label="Previous week"
+                  disabled={weekOffset === 0}
+                  onClick={() => changeWeek(weekOffset - 1)}
+                >
+                  ‹
+                </button>
+                <p aria-live="polite">{range}</p>
+                <button
+                  type="button"
+                  className="arrow"
+                  aria-label="Next week"
+                  disabled={weekOffset === MAX_WEEK_OFFSET}
+                  onClick={() => changeWeek(weekOffset + 1)}
+                >
+                  ›
+                </button>
+              </div>
             </div>
             <Legend value={filter} onChange={setFilter} />
           </div>
