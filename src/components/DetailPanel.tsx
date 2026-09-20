@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { COACHES, DESCRIPTIONS, TYPES } from '../data/catalog'
-import { MON, DAY_FULL, cancelDeadline, formatTime, isCancellable, isFull, spotsLeft, type StudioClass } from '../lib/schedule'
+import { DOW, MON, DAY_FULL, cancelDeadline, formatTime, isCancellable, isFull, spotsLeft, type StudioClass } from '../lib/schedule'
 import { downloadIcs } from '../lib/ics'
 import { useIsMobile } from '../hooks/useIsMobile'
 
@@ -11,17 +11,42 @@ interface Props {
   mine: boolean
   waitlisted: boolean
   open: boolean
+  /** Other sittings of this class the booking could move to; empty unless `mine`. */
+  alternatives: StudioClass[]
   onToggle: (id: string) => void
+  onReschedule: (fromId: string, toId: string) => void
   onClose: () => void
 }
 
 const FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
 
 /** Sticky aside on desktop; slides up as a bottom sheet under 980px (see .panel in index.css). */
-export function DetailPanel({ c, now, credits, mine, waitlisted, open, onToggle, onClose }: Props) {
+export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternatives, onToggle, onReschedule, onClose }: Props) {
   const panelRef = useRef<HTMLElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
+  const pickerRef = useRef<HTMLDivElement>(null)
+  const moveRef = useRef<HTMLButtonElement>(null)
   const mobile = useIsMobile()
+
+  /** Whether the reschedule picker is expanded — a sub-step of the panel, not a second dialog. */
+  const [moving, setMoving] = useState(false)
+
+  // Picking a different class, or closing the sheet, ends the move. Without this the picker
+  // would still be open, listing the wrong class's alternatives, on the next block you tap.
+  useEffect(() => {
+    setMoving(false)
+  }, [c?.id, open])
+
+  // The picker is opened by a button and replaces nothing, so focus has to be sent into it
+  // deliberately; the panel's own Tab trap picks the new buttons up on its next keystroke.
+  useEffect(() => {
+    if (moving) pickerRef.current?.querySelector<HTMLElement>('button')?.focus()
+  }, [moving])
+
+  const stopMoving = useCallback(() => {
+    setMoving(false)
+    moveRef.current?.focus()
+  }, [])
 
   // Below 980px this is a real modal, so it needs what `position: fixed` alone does not give it:
   // focus moves in, Tab cannot wander behind the scrim, and focus returns to whatever opened it.
@@ -142,9 +167,74 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, onToggle,
       </button>
       {mine && (
         <div className="postcta">
-          <button type="button" className="addcal" onClick={() => downloadIcs(c)}>
-            Add to calendar
-          </button>
+          <div className="pcrow">
+            {cancellable && (
+              <button
+                type="button"
+                ref={moveRef}
+                className="addcal"
+                aria-expanded={moving}
+                aria-controls="resched"
+                onClick={() => (moving ? stopMoving() : setMoving(true))}
+              >
+                Reschedule
+              </button>
+            )}
+            <button type="button" className="addcal" onClick={() => downloadIcs(c)}>
+              Add to calendar
+            </button>
+          </div>
+          {/* Gated on `cancellable`, not just `moving`: the live clock can cross the two-hour
+              deadline with the picker open, and the panel should not keep offering a move the
+              hook would now refuse. */}
+          {moving && cancellable && (
+            <div
+              className="resched"
+              id="resched"
+              ref={pickerRef}
+              role="group"
+              aria-label={`Move ${c.name} to another time`}
+              // Escape belongs to the picker while it is open. It has to stop here, or the
+              // window-level handler in App closes the whole sheet and loses the booking view.
+              onKeyDown={(e) => {
+                if (e.key !== 'Escape') return
+                e.stopPropagation()
+                stopMoving()
+              }}
+            >
+              {alternatives.length > 0 ? (
+                <>
+                  <ul>
+                    {alternatives.map((a) => (
+                      <li key={a.id}>
+                        <button
+                          type="button"
+                          onClick={() => onReschedule(c.id, a.id)}
+                          aria-label={`Move to ${DAY_FULL[a.when.getDay()]} ${MON[a.when.getMonth()]} ${a.when.getDate()}, ${a.time}, ${spotsLeft(a)} spots left`}
+                        >
+                          <b>
+                            {DOW[a.when.getDay()]} {MON[a.when.getMonth()]} {a.when.getDate()}
+                          </b>
+                          <span className="num">{a.time}</span>
+                          <em>{spotsLeft(a)} left</em>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button type="button" className="keep" onClick={stopMoving}>
+                    Keep this booking
+                  </button>
+                </>
+              ) : (
+                <p className="none">
+                  No other {c.name} with room in the next four weeks.{' '}
+                  <button type="button" className="keep" onClick={stopMoving}>
+                    Back
+                  </button>
+                </p>
+              )}
+            </div>
+          )}
           <small>
             {cancellable
               ? `Free cancellation until ${formatTime(deadline)}`

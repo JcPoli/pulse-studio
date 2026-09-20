@@ -66,6 +66,15 @@ export default function App() {
     }
   }, [])
 
+  // The panel follows the booking rather than the slot just vacated: the member is looking at
+  // what they hold now, and the toast's Undo can put it back without the view jumping again.
+  const onReschedule = useCallback(
+    (fromId: string, toId: string) => {
+      b.reschedule(fromId, toId, setSelected)
+    },
+    [b.reschedule],
+  )
+
   // Back / swipe-back while the sheet is up: our entry is already gone, so just close.
   useEffect(() => {
     const onPop = () => {
@@ -147,6 +156,12 @@ export default function App() {
     return b.classes.filter((c) => c.date === key && (filter === 'all' || c.type === filter)).length
   }, [b.week, b.classes, dayIndex, filter])
 
+  /** Only a booking of the member's own can be moved, so anything else gets an empty list. */
+  const alternatives = useMemo(
+    () => (selectedClass && b.booked[selectedClass.id] ? b.alternatives(selectedClass, clock) : []),
+    [selectedClass, b.booked, b.alternatives, clock],
+  )
+
   /** Whole-week total for the active filter, so a filter with no matches says so. */
   const weekCount = useMemo(
     () => b.classes.filter((c) => filter === 'all' || c.type === filter).length,
@@ -220,7 +235,9 @@ export default function App() {
               mine={!!(selected && b.booked[selected])}
               waitlisted={!!(selected && b.waitlist[selected])}
               open={panelOpen}
+              alternatives={alternatives}
               onToggle={b.toggle}
+              onReschedule={onReschedule}
               onClose={closePanel}
             />
           </div>

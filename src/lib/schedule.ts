@@ -85,6 +85,17 @@ export const formatTime = (d: Date): string => `${pad(d.getHours())}:${pad(d.get
 export const spotsLeft = (c: StudioClass): number => c.cap - c.taken
 export const isFull = (c: StudioClass): boolean => spotsLeft(c) <= 0
 
+/** A class carries only a start and a duration, so every end time is derived. */
+export const endOf = (c: StudioClass): Date => new Date(c.when.getTime() + c.mins * 60_000)
+
+/**
+ * Do two classes collide? Half-open on both sides on purpose: the template is full of classes
+ * that begin exactly when another ends — Sunrise Flow 06:30 for 60 minutes, then HIIT 45 at
+ * 07:30 — and holding both of those is a normal Monday, not a clash.
+ */
+export const overlaps = (a: StudioClass, b: StudioClass): boolean =>
+  a.when.getTime() < endOf(b).getTime() && b.when.getTime() < endOf(a).getTime()
+
 export function formatDayLong(d: Date): string {
   return `${DAY_FULL[d.getDay()]} ${MON[d.getMonth()]} ${d.getDate()}`
 }

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { HORIZON_DAYS, PACK_SIZE, type ClassType } from '../data/catalog'
 import {
+  DOW,
   buildClasses,
   buildDays,
   isCancellable,
   isFull,
   isoDate,
   isPast,
+  overlaps,
   type StudioClass,
 } from '../lib/schedule'
 
@@ -23,6 +25,7 @@ export interface BookingState {
 type Action =
   | { type: 'book'; id: string }
   | { type: 'cancel'; id: string }
+  | { type: 'reschedule'; from: string; to: string }
   | { type: 'join_waitlist'; id: string }
   | { type: 'leave_waitlist'; id: string }
   | { type: 'top_up'; amount: number }
@@ -37,6 +40,24 @@ export function reducer(s: BookingState, a: Action): BookingState {
       const booked = { ...s.booked }
       delete booked[a.id]
       return { ...s, credits: s.credits + 1, booked, taken: { ...s.taken, [a.id]: (s.taken[a.id] ?? 0) - 1 } }
+    }
+    case 'reschedule': {
+      const booked = { ...s.booked }
+      delete booked[a.from]
+      booked[a.to] = true
+      // One seat changes hands, so `credits` is deliberately untouched: a cancel-then-book
+      // round-trip would refund a credit and spend it again, which flashes the wallet up and
+      // back down in the top bar and leaves a member on their last credit one failed step away
+      // from having given up their spot for nothing.
+      return {
+        ...s,
+        booked,
+        taken: {
+          ...s.taken,
+          [a.from]: (s.taken[a.from] ?? 0) - 1,
+          [a.to]: (s.taken[a.to] ?? 0) + 1,
+        },
+      }
     }
     case 'join_waitlist':
       return { ...s, waitlist: { ...s.waitlist, [a.id]: true } }
@@ -176,6 +197,22 @@ export function useBooking(anchor: Date, weekOffset: number) {
     toastTimer.current = window.setTimeout(() => setToast(null), undo ? 6000 : 2200)
   }, [])
 
+  const upcoming = useMemo(
+    () => allClasses.filter((c) => state.booked[c.id]).sort((a, b) => a.when.getTime() - b.when.getTime()),
+    [allClasses, state.booked],
+  )
+
+  /**
+   * The class the member already holds that collides with `c`, if there is one. `except` drops a
+   * single id from the test, which is what makes a move possible: the slot being vacated must
+   * not be allowed to veto the slot replacing it.
+   */
+  const clashWith = useCallback(
+    (c: StudioClass, except?: string): StudioClass | undefined =>
+      upcoming.find((held) => held.id !== c.id && held.id !== except && overlaps(held, c)),
+    [upcoming],
+  )
+
   /** One entry point for the primary action on a class; decides what the click means. */
   const toggle = useCallback(
     (id: string): ToggleResult => {
@@ -184,6 +221,7 @@ export function useBooking(anchor: Date, weekOffset: number) {
       const at = new Date()
       const c = byId(id)
       if (!c || isPast(c, at)) return { ok: false, message: 'This class has already started' }
+      const clash = clashWith(c)
       let r: ToggleResult
       let undo: (() => void) | undefined
       if (state.booked[id]) {
@@ -196,8 +234,14 @@ export function useBooking(anchor: Date, weekOffset: number) {
         dispatch({ type: 'leave_waitlist', id })
         r = { ok: true, message: 'Left the waitlist' }
       } else if (isFull(c)) {
+        // No clash check on this branch: a waitlist place is a maybe, not a seat, and the
+        // studio texts you before it becomes one — that is where the collision gets settled.
         dispatch({ type: 'join_waitlist', id })
         r = { ok: true, message: "On the waitlist · we'll text you if a spot opens" }
+      } else if (clash) {
+        // Checked before credits because it is about the schedule, not the wallet: topping up
+        // would not make this bookable.
+        r = { ok: false, message: `Clashes with ${clash.name} at ${clash.time}` }
       } else if (state.credits <= 0) {
         r = { ok: false, message: 'No credits left — add a pack' }
       } else {
@@ -212,7 +256,71 @@ export function useBooking(anchor: Date, weekOffset: number) {
       showToast(r.message, undo)
       return r
     },
-    [byId, state.booked, state.waitlist, state.credits, showToast],
+    [byId, clashWith, state.booked, state.waitlist, state.credits, showToast],
+  )
+
+  /**
+   * Moves a booking to another sitting in one dispatch. The two-hour window that has to still
+   * be open is the one on the class being given up, not the one being taken: walking out of a
+   * class the studio can no longer refill is the part that costs them, and that rule must not
+   * be sidestepped by calling a cancellation a move.
+   *
+   * `onMoved` is handed whichever class the member holds afterwards — the new one, and the old
+   * one again if they press Undo — so the view can follow the booking instead of sitting on a
+   * slot that is no longer theirs.
+   */
+  const reschedule = useCallback(
+    (fromId: string, toId: string, onMoved?: (heldId: string) => void): ToggleResult => {
+      const at = new Date()
+      const from = byId(fromId)
+      const to = byId(toId)
+      if (!from || !to || !state.booked[fromId]) return { ok: false, message: 'That booking is no longer yours' }
+      let r: ToggleResult
+      let undo: (() => void) | undefined
+      const clash = clashWith(to, fromId)
+      if (fromId === toId) r = { ok: false, message: "That's the class you're already in" }
+      else if (state.booked[toId]) r = { ok: false, message: "You're already booked into that one" }
+      else if (isPast(to, at)) r = { ok: false, message: 'That class has already started' }
+      else if (isFull(to)) r = { ok: false, message: 'That class filled up — pick another' }
+      else if (!isCancellable(from, at)) r = { ok: false, message: 'Too late to move — under 2 hours to class' }
+      else if (clash) r = { ok: false, message: `Clashes with ${clash.name} at ${clash.time}` }
+      else {
+        dispatch({ type: 'reschedule', from: fromId, to: toId })
+        onMoved?.(toId)
+        r = { ok: true, message: `Moved to ${DOW[to.when.getDay()]} ${to.time}` }
+        // The inverse of a move is the same move backwards, and the seat just vacated is still
+        // the member's to take back, so this cannot fail on capacity.
+        undo = () => {
+          dispatch({ type: 'reschedule', from: toId, to: fromId })
+          onMoved?.(fromId)
+          showToast(`Moved back to ${DOW[from.when.getDay()]} ${from.time}`)
+        }
+      }
+      showToast(r.message, undo)
+      return r
+    },
+    [byId, clashWith, state.booked, showToast],
+  )
+
+  /**
+   * Where a booking could move to: the same class on another day, still open, and clear of the
+   * rest of the member's week. Capped at five because on a phone this list renders inside a
+   * bottom sheet that the cancellation note has to stay visible under.
+   */
+  const alternatives = useCallback(
+    (c: StudioClass, at: Date): StudioClass[] =>
+      allClasses
+        .filter(
+          (a) =>
+            a.name === c.name &&
+            a.id !== c.id &&
+            !state.booked[a.id] &&
+            !isPast(a, at) &&
+            !isFull(a) &&
+            !clashWith(a, c.id),
+        )
+        .slice(0, 5),
+    [allClasses, clashWith, state.booked],
   )
 
   const topUp = useCallback(() => {
@@ -220,10 +328,6 @@ export function useBooking(anchor: Date, weekOffset: number) {
     showToast(`Added ${PACK_SIZE} credits`)
   }, [showToast])
 
-  const upcoming = useMemo(
-    () => allClasses.filter((c) => state.booked[c.id]).sort((a, b) => a.when.getTime() - b.when.getTime()),
-    [allClasses, state.booked],
-  )
   const waitlisted = useMemo(
     () => allClasses.filter((c) => state.waitlist[c.id]).sort((a, b) => a.when.getTime() - b.when.getTime()),
     [allClasses, state.waitlist],
@@ -248,6 +352,8 @@ export function useBooking(anchor: Date, weekOffset: number) {
     waitlisted,
     favouriteType,
     toggle,
+    reschedule,
+    alternatives,
     topUp,
     toast,
     showToast,
