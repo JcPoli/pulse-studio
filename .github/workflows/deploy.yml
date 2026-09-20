@@ -28,6 +28,8 @@ jobs:
       # us (and runs the local tsc: plain `npx tsc` would fetch an unrelated,
       # deprecated `tsc` package from the registry if it ever went missing).
       - run: npm run typecheck
+      # Before the build, not after: a red suite should stop a deploy, not follow one.
+      - run: npm test
       - run: npx vite build --base=/pulse-studio/
       - uses: actions/upload-pages-artifact@v3
         with:
