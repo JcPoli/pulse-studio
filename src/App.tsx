@@ -7,13 +7,13 @@ import { DetailPanel } from './components/DetailPanel'
 import { MyClasses } from './components/MyClasses'
 import { Membership } from './components/Membership'
 import { Toast } from './components/Toast'
-import { useBooking, type Tab } from './hooks/useBooking'
+import { MAX_WEEK_OFFSET, useBooking, type Tab } from './hooks/useBooking'
 import { isMobile } from './hooks/useIsMobile'
 import { TYPES } from './data/catalog'
 import { MON, isoDate } from './lib/schedule'
 
 export default function App() {
-  // `anchor` fixes which seven days the board shows, so the grid never reshuffles mid-booking.
+  // `anchor` fixes the first day of the generated horizon, so the grid never reshuffles.
   const [anchor] = useState(() => new Date())
   // `clock` is the live one: it greys out classes as they start, walks the now-line down the
   // board, and closes the cancellation window. It only re-renders on a minute boundary.
@@ -29,7 +29,8 @@ export default function App() {
     return () => window.clearInterval(tick)
   }, [])
 
-  const b = useBooking(anchor)
+  const [weekOffset, setWeekOffset] = useState(0)
+  const b = useBooking(anchor, weekOffset)
 
   const [tab, setTab] = useState<Tab>('schedule')
   const [filter, setFilter] = useState<TypeFilter>('all')
@@ -65,6 +66,15 @@ export default function App() {
     }
   }, [])
 
+  // The panel follows the booking rather than the slot just vacated: the member is looking at
+  // what they hold now, and the toast's Undo can put it back without the view jumping again.
+  const onReschedule = useCallback(
+    (fromId: string, toId: string) => {
+      b.reschedule(fromId, toId, setSelected)
+    },
+    [b.reschedule],
+  )
+
   // Back / swipe-back while the sheet is up: our entry is already gone, so just close.
   useEffect(() => {
     const onPop = () => {
@@ -76,6 +86,18 @@ export default function App() {
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
+
+  const changeWeek = useCallback(
+    (next: number) => {
+      if (next < 0 || next > MAX_WEEK_OFFSET) return
+      setWeekOffset(next)
+      setDayIndex(0)
+      setSelected(null)
+      closePanel()
+      colsRef.current?.scrollTo({ left: 0 })
+    },
+    [closePanel],
+  )
 
   const onTab = useCallback(
     (t: Tab) => {
@@ -134,6 +156,12 @@ export default function App() {
     return b.classes.filter((c) => c.date === key && (filter === 'all' || c.type === filter)).length
   }, [b.week, b.classes, dayIndex, filter])
 
+  /** Only a booking of the member's own can be moved, so anything else gets an empty list. */
+  const alternatives = useMemo(
+    () => (selectedClass && b.booked[selectedClass.id] ? b.alternatives(selectedClass, clock) : []),
+    [selectedClass, b.booked, b.alternatives, clock],
+  )
+
   /** Whole-week total for the active filter, so a filter with no matches says so. */
   const weekCount = useMemo(
     () => b.classes.filter((c) => filter === 'all' || c.type === filter).length,
@@ -152,9 +180,29 @@ export default function App() {
           <div className="shead">
             <div>
               <h1>
-                This <span>week</span>
+                {weekOffset === 0 ? 'This' : weekOffset === 1 ? 'Next' : `In ${weekOffset}`} <span>week{weekOffset > 1 ? 's' : ''}</span>
               </h1>
-              <p>{range}</p>
+              <div className="weeknav">
+                <button
+                  type="button"
+                  className="arrow"
+                  aria-label="Previous week"
+                  disabled={weekOffset === 0}
+                  onClick={() => changeWeek(weekOffset - 1)}
+                >
+                  ‹
+                </button>
+                <p aria-live="polite">{range}</p>
+                <button
+                  type="button"
+                  className="arrow"
+                  aria-label="Next week"
+                  disabled={weekOffset === MAX_WEEK_OFFSET}
+                  onClick={() => changeWeek(weekOffset + 1)}
+                >
+                  ›
+                </button>
+              </div>
             </div>
             <Legend value={filter} onChange={setFilter} />
           </div>
@@ -187,7 +235,9 @@ export default function App() {
               mine={!!(selected && b.booked[selected])}
               waitlisted={!!(selected && b.waitlist[selected])}
               open={panelOpen}
+              alternatives={alternatives}
               onToggle={b.toggle}
+              onReschedule={onReschedule}
               onClose={closePanel}
             />
           </div>

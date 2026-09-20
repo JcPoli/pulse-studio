@@ -1,6 +1,6 @@
-import { forwardRef } from 'react'
-import { BOARD_END_HOUR, BOARD_START_HOUR, HOUR_PX } from '../data/catalog'
+import { forwardRef, useMemo } from 'react'
 import { DOW, isoDate, pad, type StudioClass } from '../lib/schedule'
+import { buildScale } from '../lib/boardScale'
 import { ClassBlock } from './ClassBlock'
 import type { TypeFilter } from './Legend'
 
@@ -15,8 +15,6 @@ interface Props {
   onSelect: (id: string) => void
 }
 
-const HOURS = Array.from({ length: BOARD_END_HOUR - BOARD_START_HOUR }, (_, i) => BOARD_START_HOUR + i)
-
 /** The weekly grid. `ref` lands on the scrolling columns wrapper so the mobile day switcher can drive it. */
 export const Board = forwardRef<HTMLDivElement, Props>(function Board(
   { week, classes, now, filter, booked, waitlist, selected, onSelect },
@@ -24,18 +22,34 @@ export const Board = forwardRef<HTMLDivElement, Props>(function Board(
 ) {
   const todayKey = isoDate(now)
   const nowMin = now.getHours() * 60 + now.getMinutes()
-  const bodyHeight = (BOARD_END_HOUR - BOARD_START_HOUR) * HOUR_PX
-  const showNowLine = nowMin > BOARD_START_HOUR * 60 && nowMin < BOARD_END_HOUR * 60
+  // Unfiltered on purpose, so picking a type filter does not reflow the grid.
+  const scale = useMemo(() => buildScale(classes), [classes])
+  const showNowLine = nowMin > scale.startMin && nowMin < scale.endMin && !scale.inGap(nowMin)
 
   return (
     <div className="board">
       <div className="rail" aria-hidden="true">
         <div className="h" />
-        {HOURS.map((h) => (
-          <div className="t" key={h}>
-            <span>{h === BOARD_START_HOUR ? '' : `${pad(h)}:00`}</span>
-          </div>
-        ))}
+        {scale.rows.map((r, i) =>
+          r.kind === 'hour' ? (
+            // Hour labels straddle the row's top edge, which after a band would collide with
+            // the band's own label — `after-gap` drops this one inside its row instead.
+            <div
+              className={scale.rows[i - 1]?.kind === 'gap' ? 't after-gap' : 't'}
+              key={`h${r.hour}`}
+              style={{ height: r.h }}
+            >
+              {/* The first label would overflow above the board, so it stays blank. */}
+              <span>{r.y === 0 ? '' : `${pad(r.hour)}:00`}</span>
+            </div>
+          ) : (
+            <div className="gap" key={`g${r.fromHour}`} style={{ height: r.h }}>
+              <span>
+                {pad(r.fromHour)}–{pad(r.toHour)}
+              </span>
+            </div>
+          ),
+        )}
       </div>
       <div className="cols" ref={colsRef}>
         {week.map((d, di) => {
@@ -48,12 +62,16 @@ export const Board = forwardRef<HTMLDivElement, Props>(function Board(
                 <span className="dow">{isToday ? 'Today' : DOW[d.getDay()]}</span>
                 <span className="dn num">{d.getDate()}</span>
               </div>
-              <div className="body" style={{ height: bodyHeight }}>
+              <div className="body" style={{ height: scale.height, backgroundImage: scale.background }}>
+                {scale.gaps.map((g) => (
+                  <div className="gapband" key={g.y} style={{ top: g.y, height: g.h }} aria-hidden="true" />
+                ))}
                 {dayClasses.map((c) => (
                   <ClassBlock
                     key={c.id}
                     c={c}
                     now={now}
+                    scale={scale}
                     mine={!!booked[c.id]}
                     waitlisted={!!waitlist[c.id]}
                     selected={selected === c.id}
@@ -61,7 +79,7 @@ export const Board = forwardRef<HTMLDivElement, Props>(function Board(
                   />
                 ))}
                 {isToday && showNowLine && (
-                  <div className="nowline" style={{ top: ((nowMin - BOARD_START_HOUR * 60) / 60) * HOUR_PX }} aria-hidden="true" />
+                  <div className="nowline" style={{ top: scale.yOf(nowMin) }} aria-hidden="true" />
                 )}
               </div>
             </div>

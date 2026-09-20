@@ -1,5 +1,5 @@
 import { COACHES } from '../data/catalog'
-import type { StudioClass } from './schedule'
+import { endOf, type StudioClass } from './schedule'
 
 /** RFC 5545 UTC stamp: 20260919T024500Z */
 const stamp = (d: Date): string => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
@@ -8,7 +8,7 @@ const stamp = (d: Date): string => d.toISOString().replace(/[-:]/g, '').replace(
 const esc = (s: string): string => s.replace(/([\\;,])/g, '\\$1').replace(/\n/g, '\\n')
 
 export function classIcs(c: StudioClass, at: Date): string {
-  const end = new Date(c.when.getTime() + c.mins * 60_000)
+  const end = endOf(c)
   const coach = COACHES[c.coach]
   // CRLF line endings are mandatory; Google and Apple both reject bare LF.
   return [

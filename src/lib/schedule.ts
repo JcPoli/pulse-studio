@@ -35,15 +35,18 @@ export function hash(s: string): number {
   return h
 }
 
-/** Today plus the next six days. */
-export function buildWeek(today: Date): Date[] {
-  const base = startOfDay(today)
-  return Array.from({ length: 7 }, (_, i) => {
+/** `count` consecutive days starting `offsetDays` after the given day. */
+export function buildDays(from: Date, count: number, offsetDays = 0): Date[] {
+  const base = startOfDay(from)
+  return Array.from({ length: count }, (_, i) => {
     const d = new Date(base.getTime())
-    d.setDate(base.getDate() + i)
+    d.setDate(base.getDate() + offsetDays + i)
     return d
   })
 }
+
+/** Today plus the next six days. */
+export const buildWeek = (today: Date): Date[] => buildDays(today, 7)
 
 /** Deterministic demo schedule for the given days; taken counts seeded from the id. */
 export function buildClasses(week: Date[]): StudioClass[] {
@@ -81,6 +84,17 @@ export const cancelDeadline = (c: StudioClass): Date => new Date(c.when.getTime(
 export const formatTime = (d: Date): string => `${pad(d.getHours())}:${pad(d.getMinutes())}`
 export const spotsLeft = (c: StudioClass): number => c.cap - c.taken
 export const isFull = (c: StudioClass): boolean => spotsLeft(c) <= 0
+
+/** A class carries only a start and a duration, so every end time is derived. */
+export const endOf = (c: StudioClass): Date => new Date(c.when.getTime() + c.mins * 60_000)
+
+/**
+ * Do two classes collide? Half-open on both sides on purpose: the template is full of classes
+ * that begin exactly when another ends — Sunrise Flow 06:30 for 60 minutes, then HIIT 45 at
+ * 07:30 — and holding both of those is a normal Monday, not a clash.
+ */
+export const overlaps = (a: StudioClass, b: StudioClass): boolean =>
+  a.when.getTime() < endOf(b).getTime() && b.when.getTime() < endOf(a).getTime()
 
 export function formatDayLong(d: Date): string {
   return `${DAY_FULL[d.getDay()]} ${MON[d.getMonth()]} ${d.getDate()}`
