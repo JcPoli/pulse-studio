@@ -13,8 +13,9 @@ import { TYPES } from './data/catalog'
 import { MON, isoDate } from './lib/schedule'
 
 export default function App() {
-  // `anchor` fixes the first day of the generated horizon, so the grid never reshuffles.
-  const [anchor] = useState(() => new Date())
+  // `anchor` fixes the first day of the generated horizon, so the grid never reshuffles while
+  // it is the same day. It advances at midnight — see below.
+  const [anchor, setAnchor] = useState(() => new Date())
   // `clock` is the live one: it greys out classes as they start, walks the now-line down the
   // board, and closes the cancellation window. It only re-renders on a minute boundary.
   const [clock, setClock] = useState(() => new Date())
@@ -22,12 +23,27 @@ export default function App() {
     const tick = window.setInterval(() => {
       setClock((prev) => {
         const next = new Date()
-        const same = next.getHours() === prev.getHours() && next.getMinutes() === prev.getMinutes()
+        // The day is part of the comparison, not just the time: a tab frozen for exactly
+        // twenty-four hours would otherwise wake to a matching hour and minute and decide
+        // nothing had changed, which is the one case that could keep the date stale.
+        const same =
+          next.getDate() === prev.getDate() &&
+          next.getHours() === prev.getHours() &&
+          next.getMinutes() === prev.getMinutes()
         return same ? prev : next
       })
     }, 30_000)
     return () => window.clearInterval(tick)
   }, [])
+
+  // Midnight. A tab left open overnight kept yesterday as the board's first column, and
+  // DaySwitch compares that column against the live clock to decide what to call "Today" — so
+  // it found no match and labelled today's column by weekday instead. Advancing the anchor
+  // rebuilds the horizon from the new today. The bookings are in state, not derived from the
+  // anchor, so nothing is lost when the day rolls over.
+  useEffect(() => {
+    if (isoDate(clock) !== isoDate(anchor)) setAnchor(clock)
+  }, [clock, anchor])
 
   const [weekOffset, setWeekOffset] = useState(0)
   const b = useBooking(anchor, weekOffset)

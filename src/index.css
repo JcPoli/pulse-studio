@@ -37,6 +37,9 @@ html { -webkit-text-size-adjust: 100%; }
   button { cursor: pointer; }
   :focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
   .cond { font-family: var(--cond); text-transform: uppercase; letter-spacing: .02em; font-weight: 700; }
+  /* position: absolute is doing real work here beyond hiding: it takes the node out of flow, so
+     the board's keyboard hint can live inside a flex row without becoming a 1px column in it. */
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
   .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
   .wrap { max-width: 1240px; margin: 0 auto; padding: 0 20px; }
 

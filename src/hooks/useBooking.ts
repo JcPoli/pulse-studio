@@ -8,9 +8,9 @@ import {
   isFull,
   isoDate,
   isPast,
-  overlaps,
   type StudioClass,
 } from '../lib/schedule'
+import { alternativesFor, clashWith } from '../lib/booking'
 
 export type Tab = 'schedule' | 'mine' | 'membership'
 
@@ -202,14 +202,9 @@ export function useBooking(anchor: Date, weekOffset: number) {
     [allClasses, state.booked],
   )
 
-  /**
-   * The class the member already holds that collides with `c`, if there is one. `except` drops a
-   * single id from the test, which is what makes a move possible: the slot being vacated must
-   * not be allowed to veto the slot replacing it.
-   */
-  const clashWith = useCallback(
-    (c: StudioClass, except?: string): StudioClass | undefined =>
-      upcoming.find((held) => held.id !== c.id && held.id !== except && overlaps(held, c)),
+  /** Bound to what the member holds; the rule itself lives in lib/booking.ts. */
+  const findClash = useCallback(
+    (c: StudioClass, except?: string): StudioClass | undefined => clashWith(upcoming, c, except),
     [upcoming],
   )
 
@@ -221,7 +216,7 @@ export function useBooking(anchor: Date, weekOffset: number) {
       const at = new Date()
       const c = byId(id)
       if (!c || isPast(c, at)) return { ok: false, message: 'This class has already started' }
-      const clash = clashWith(c)
+      const clash = findClash(c)
       let r: ToggleResult
       let undo: (() => void) | undefined
       if (state.booked[id]) {
@@ -256,7 +251,7 @@ export function useBooking(anchor: Date, weekOffset: number) {
       showToast(r.message, undo)
       return r
     },
-    [byId, clashWith, state.booked, state.waitlist, state.credits, showToast],
+    [byId, findClash, state.booked, state.waitlist, state.credits, showToast],
   )
 
   /**
@@ -277,7 +272,7 @@ export function useBooking(anchor: Date, weekOffset: number) {
       if (!from || !to || !state.booked[fromId]) return { ok: false, message: 'That booking is no longer yours' }
       let r: ToggleResult
       let undo: (() => void) | undefined
-      const clash = clashWith(to, fromId)
+      const clash = findClash(to, fromId)
       if (fromId === toId) r = { ok: false, message: "That's the class you're already in" }
       else if (state.booked[toId]) r = { ok: false, message: "You're already booked into that one" }
       else if (isPast(to, at)) r = { ok: false, message: 'That class has already started' }
@@ -299,28 +294,12 @@ export function useBooking(anchor: Date, weekOffset: number) {
       showToast(r.message, undo)
       return r
     },
-    [byId, clashWith, state.booked, showToast],
+    [byId, findClash, state.booked, showToast],
   )
 
-  /**
-   * Where a booking could move to: the same class on another day, still open, and clear of the
-   * rest of the member's week. Capped at five because on a phone this list renders inside a
-   * bottom sheet that the cancellation note has to stay visible under.
-   */
   const alternatives = useCallback(
-    (c: StudioClass, at: Date): StudioClass[] =>
-      allClasses
-        .filter(
-          (a) =>
-            a.name === c.name &&
-            a.id !== c.id &&
-            !state.booked[a.id] &&
-            !isPast(a, at) &&
-            !isFull(a) &&
-            !clashWith(a, c.id),
-        )
-        .slice(0, 5),
-    [allClasses, clashWith, state.booked],
+    (c: StudioClass, at: Date): StudioClass[] => alternativesFor(allClasses, c, upcoming, at),
+    [allClasses, upcoming],
   )
 
   const topUp = useCallback(() => {
