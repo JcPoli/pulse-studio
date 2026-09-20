@@ -9,10 +9,12 @@ interface Props {
   mine: boolean
   waitlisted: boolean
   selected: boolean
+  /** 0 on the board's single tab stop, -1 on every other block — see Board's arrow keys. */
+  tabIndex: number
   onSelect: (id: string) => void
 }
 
-export function ClassBlock({ c, now, scale, mine, waitlisted, selected, onSelect }: Props) {
+export function ClassBlock({ c, now, scale, mine, waitlisted, selected, tabIndex, onSelect }: Props) {
   const t = TYPES[c.type]
   const past = isPast(c, now)
   const full = isFull(c)
@@ -28,12 +30,16 @@ export function ClassBlock({ c, now, scale, mine, waitlisted, selected, onSelect
   // ambiguous ("07:30, 4 left" could be any of seven columns).
   const label = `${c.name}, ${DAY_FULL[c.when.getDay()]} ${c.time}, ${c.mins} min with ${c.coach}, ${status}`
 
+  // `data-id` is how Board moves focus onto a specific block: the arrow keys work out which
+  // class should have it, and a React key is not something you can query the DOM for.
   return (
     <button
       type="button"
       className={cls}
       style={{ top, height, background: t.bg, color: t.fg }}
       disabled={past}
+      data-id={c.id}
+      tabIndex={tabIndex}
       aria-label={label}
       aria-pressed={selected}
       onClick={() => onSelect(c.id)}
