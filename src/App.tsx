@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TopBar } from './components/TopBar'
-import { Legend, type TypeFilter } from './components/Legend'
+import { Filters } from './components/Filters'
 import { DaySwitch } from './components/DaySwitch'
 import { Board } from './components/Board'
 import { DetailPanel } from './components/DetailPanel'
@@ -9,8 +9,8 @@ import { Membership } from './components/Membership'
 import { Toast } from './components/Toast'
 import { MAX_WEEK_OFFSET, useBooking, type Tab } from './hooks/useBooking'
 import { isMobile } from './hooks/useIsMobile'
-import { TYPES } from './data/catalog'
 import { MON, isoDate } from './lib/schedule'
+import { EMPTY_FILTER, describeFilter, isEmptyFilter, matches, type ClassFilter } from './lib/filter'
 
 export default function App() {
   // `anchor` fixes the first day of the generated horizon, so the grid never reshuffles while
@@ -49,7 +49,7 @@ export default function App() {
   const b = useBooking(anchor, weekOffset)
 
   const [tab, setTab] = useState<Tab>('schedule')
-  const [filter, setFilter] = useState<TypeFilter>('all')
+  const [filter, setFilter] = useState<ClassFilter>(EMPTY_FILTER)
   const [selected, setSelected] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [dayIndex, setDayIndex] = useState(0)
@@ -169,7 +169,7 @@ export default function App() {
 
   const dayCount = useMemo(() => {
     const key = isoDate(b.week[dayIndex])
-    return b.classes.filter((c) => c.date === key && (filter === 'all' || c.type === filter)).length
+    return b.classes.filter((c) => c.date === key && matches(c, filter)).length
   }, [b.week, b.classes, dayIndex, filter])
 
   /** Only a booking of the member's own can be moved, so anything else gets an empty list. */
@@ -180,12 +180,16 @@ export default function App() {
 
   /** Whole-week total for the active filter, so a filter with no matches says so. */
   const weekCount = useMemo(
-    () => b.classes.filter((c) => filter === 'all' || c.type === filter).length,
+    () => b.classes.filter((c) => matches(c, filter)).length,
     [b.classes, filter],
   )
-  const filterLabel = filter === 'all' ? '' : `${TYPES[filter].label} `
 
-  const range = `${MON[b.week[0].getMonth()]} ${b.week[0].getDate()} – ${MON[b.week[6].getMonth()]} ${b.week[6].getDate()} · ${b.classes.length} classes`
+  // With a filter on, the count says how much of the week survived it rather than how big the
+  // week is — "8 of 31" is the useful number once you have narrowed something down.
+  const span = `${MON[b.week[0].getMonth()]} ${b.week[0].getDate()} – ${MON[b.week[6].getMonth()]} ${b.week[6].getDate()}`
+  const range = isEmptyFilter(filter)
+    ? `${span} · ${b.classes.length} classes`
+    : `${span} · ${weekCount} of ${b.classes.length} classes`
 
   return (
     <>
@@ -220,15 +224,15 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <Legend value={filter} onChange={setFilter} />
+            <Filters value={filter} onChange={setFilter} />
           </div>
           <DaySwitch week={b.week} index={dayIndex} count={dayCount} today={clock} onChange={onDayChange} />
           <div className="layout">
             {weekCount === 0 ? (
               <div className="emptyb">
-                No {filterLabel}classes this week.{' '}
-                <button type="button" onClick={() => setFilter('all')}>
-                  Show all classes
+                No {describeFilter(filter)} this week.{' '}
+                <button type="button" onClick={() => setFilter(EMPTY_FILTER)}>
+                  Clear the filter
                 </button>
               </div>
             ) : (

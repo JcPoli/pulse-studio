@@ -3,13 +3,13 @@ import { DOW, isPast, isoDate, pad, type StudioClass } from '../lib/schedule'
 import { buildScale } from '../lib/boardScale'
 import { isNavKey, locate, nextBlock } from '../lib/boardNav'
 import { ClassBlock } from './ClassBlock'
-import type { TypeFilter } from './Legend'
+import { matches, type ClassFilter } from '../lib/filter'
 
 interface Props {
   week: Date[]
   classes: StudioClass[]
   now: Date
-  filter: TypeFilter
+  filter: ClassFilter
   booked: Record<string, true>
   waitlist: Record<string, true>
   selected: string | null
@@ -44,7 +44,7 @@ export const Board = forwardRef<HTMLDivElement, Props>(function Board(
     () =>
       week.map((d) => {
         const key = isoDate(d)
-        return classes.filter((c) => c.date === key && (filter === 'all' || c.type === filter))
+        return classes.filter((c) => c.date === key && matches(c, filter))
       }),
     [week, classes, filter],
   )

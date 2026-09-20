@@ -68,7 +68,14 @@ html { -webkit-text-size-adjust: 100%; }
   .weeknav .arrow { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 7px; font-size: 14px; color: var(--text-2); transition: .15s; }
   .weeknav .arrow:hover:not(:disabled) { border-color: var(--text-3); color: var(--text); }
   .weeknav .arrow:disabled { opacity: .35; cursor: default; }
+  /* Right-aligned to sit under the week nav in .shead, which itself aligns to flex-end. */
+  .filters { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
   .legend { display: flex; gap: 6px; flex-wrap: wrap; }
+  .legend .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 3px; }
+  /* Round, where the type swatches are square: a coach is a person, not a category. */
+  .legend .coachchip i { border-radius: 50%; }
+  .legend .clearchip { border-style: dashed; color: var(--text-3); }
+  .legend .clearchip:hover { color: var(--text); border-color: var(--text-3); }
   .legend button { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--text-2); padding: 7px 11px; border: 1px solid var(--line); border-radius: 8px; transition: .15s; }
   .legend button i { width: 10px; height: 10px; border-radius: 2px; }
   .legend button:hover { border-color: var(--text-3); }
@@ -250,6 +257,7 @@ html { -webkit-text-size-adjust: 100%; }
     .tabs { order: 3; width: 100%; }
     .tabs button { flex: 1; text-align: center; }
     .dayswitch { display: flex; }
+    .filters { width: 100%; align-items: stretch; }
     .legend { width: 100%; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; scrollbar-width: none; }
     .legend::-webkit-scrollbar { display: none; }
     .legend button { flex: none; }
