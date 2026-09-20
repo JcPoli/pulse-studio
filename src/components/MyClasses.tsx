@@ -27,7 +27,15 @@ function Row({ c, now, kind, onToggle }: RowProps) {
         Cancel
       </button>
     )
-  else action = <small>Too late to cancel</small>
+  // Inside the two-hour window the seat can still be given back; what has closed is the refund.
+  // The row has no space to spell that out, so the label carries the difference and the
+  // aria-label carries the consequence.
+  else
+    action = (
+      <button type="button" className="late" aria-label="Cancel late — the credit is not refunded" onClick={() => onToggle(c.id)}>
+        Late cancel
+      </button>
+    )
 
   return (
     <div className={past ? 'row past' : 'row'}>

@@ -172,7 +172,9 @@ html { -webkit-text-size-adjust: 100%; }
      wrap to full width rather than shrink, because "Add to calendar" has nowhere to ellipsis. */
   .postcta .pcrow { display: flex; flex-wrap: wrap; gap: 8px; }
   .postcta .pcrow .addcal { flex: 1 1 120px; }
-  .postcta .addcal { border: 1px solid var(--line); border-radius: 10px; padding: 11px; font-size: 12.5px; font-weight: 600; color: var(--text-2); transition: .15s; }
+  /* Shared by a <button> and an <a>: the Google Calendar entry is a real link, so this rule has
+     to supply the centring and the reset that a button gets for free. */
+  .postcta .addcal { display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 11px; font-size: 12.5px; font-weight: 600; color: var(--text-2); text-decoration: none; text-align: center; transition: .15s; }
   .postcta .addcal:hover { border-color: var(--text-3); color: var(--text); }
   .postcta small { font-size: 12px; color: var(--text-3); text-align: center; line-height: 1.5; }
   .resched { border: 1px solid var(--line); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 5px; }
@@ -206,6 +208,8 @@ html { -webkit-text-size-adjust: 100%; }
   .row .act button { border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; font-size: 13px; font-weight: 600; transition: .15s; }
   .row .act button:hover { border-color: var(--danger); color: var(--danger); }
   .row .act small { font-size: 12px; color: var(--text-3); }
+  /* Dashed, like a full class block: the action is available but it costs you something. */
+  .row .act button.late { border-style: dashed; color: var(--text-3); }
   .row.past { opacity: .5; }
   .emptyb { border: 1px dashed var(--line); border-radius: 12px; padding: 30px; text-align: center; color: var(--text-3); font-size: 13.5px; }
   .emptyb button { color: var(--lime); font-weight: 700; text-decoration: underline; }

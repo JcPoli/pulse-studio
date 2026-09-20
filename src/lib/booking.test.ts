@@ -115,14 +115,58 @@ describe('reducer: reschedule', () => {
   })
 
   it('avoids the credit flash that cancel-then-book would have caused', () => {
-    const half = reducer(base, { type: 'cancel', id: THU_HIIT.id })
+    const half = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: true })
     expect(half.credits).toBe(7) // the intermediate state a single action exists to avoid
-    expect(reducer(half, { type: 'book', id: SAT_HIIT.id }).credits).toBe(6)
+    expect(reducer(half, { type: 'book', id: SAT_HIIT.id, charge: true }).credits).toBe(6)
     expect(moved.credits).toBe(6)
   })
 
   it('is not a way to spend a credit the member does not have', () => {
     const broke: BookingState = { ...base, credits: 0 }
     expect(reducer(broke, { type: 'reschedule', from: THU_HIIT.id, to: SAT_HIIT.id }).credits).toBe(0)
+  })
+})
+
+describe('reducer: cancelling late', () => {
+  const base: BookingState = {
+    credits: 6,
+    taken: { [THU_HIIT.id]: 1 },
+    booked: { [THU_HIIT.id]: true },
+    waitlist: {},
+  }
+
+  it('gives up the seat either way', () => {
+    for (const refund of [true, false]) {
+      const out = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund })
+      expect(out.booked[THU_HIIT.id]).toBeUndefined()
+      expect(out.taken[THU_HIIT.id]).toBe(0) // the spot goes back to the studio regardless
+    }
+  })
+
+  it('withholds the credit only when the window has closed', () => {
+    expect(reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: true }).credits).toBe(7)
+    expect(reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: false }).credits).toBe(6)
+  })
+
+  it('restores a late cancellation without charging again', () => {
+    // Undo has to be exact: nothing was refunded, so nothing may be taken.
+    const late = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: false })
+    const back = reducer(late, { type: 'book', id: THU_HIIT.id, charge: false })
+    expect(back.credits).toBe(base.credits)
+    expect(back.booked[THU_HIIT.id]).toBe(true)
+    expect(back.taken[THU_HIIT.id]).toBe(1)
+  })
+
+  it('restores an in-window cancellation by spending the refund back', () => {
+    const early = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: true })
+    const back = reducer(early, { type: 'book', id: THU_HIIT.id, charge: true })
+    expect(back.credits).toBe(base.credits)
+    expect(back.taken[THU_HIIT.id]).toBe(1)
+  })
+
+  it('cannot be used to mint a credit by cancelling late and rebooking free', () => {
+    const late = reducer(base, { type: 'cancel', id: THU_HIIT.id, refund: false })
+    const rebooked = reducer(late, { type: 'book', id: THU_HIIT.id, charge: true })
+    expect(rebooked.credits).toBe(5) // paying again, because the first credit was forfeited
   })
 })

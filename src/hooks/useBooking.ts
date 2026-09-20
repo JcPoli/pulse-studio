@@ -22,9 +22,16 @@ export interface BookingState {
   waitlist: Record<string, true>
 }
 
+/**
+ * `charge` and `refund` are spelled at every call site on purpose. A late cancellation gives up
+ * the seat without returning the credit, and undoing one has to put the seat back without
+ * charging again — so whether money moves is a property of the occasion, not of the verb, and
+ * hiding it inside `book` and `cancel` would make the one case that costs a member a credit the
+ * least visible thing in the file.
+ */
 type Action =
-  | { type: 'book'; id: string }
-  | { type: 'cancel'; id: string }
+  | { type: 'book'; id: string; charge: boolean }
+  | { type: 'cancel'; id: string; refund: boolean }
   | { type: 'reschedule'; from: string; to: string }
   | { type: 'join_waitlist'; id: string }
   | { type: 'leave_waitlist'; id: string }
@@ -34,12 +41,22 @@ export function reducer(s: BookingState, a: Action): BookingState {
   switch (a.type) {
     case 'book': {
       const booked = { ...s.booked, [a.id]: true as const }
-      return { ...s, credits: s.credits - 1, booked, taken: { ...s.taken, [a.id]: (s.taken[a.id] ?? 0) + 1 } }
+      return {
+        ...s,
+        credits: a.charge ? s.credits - 1 : s.credits,
+        booked,
+        taken: { ...s.taken, [a.id]: (s.taken[a.id] ?? 0) + 1 },
+      }
     }
     case 'cancel': {
       const booked = { ...s.booked }
       delete booked[a.id]
-      return { ...s, credits: s.credits + 1, booked, taken: { ...s.taken, [a.id]: (s.taken[a.id] ?? 0) - 1 } }
+      return {
+        ...s,
+        credits: a.refund ? s.credits + 1 : s.credits,
+        booked,
+        taken: { ...s.taken, [a.id]: (s.taken[a.id] ?? 0) - 1 },
+      }
     }
     case 'reschedule': {
       const booked = { ...s.booked }
@@ -220,10 +237,17 @@ export function useBooking(anchor: Date, weekOffset: number) {
       let r: ToggleResult
       let undo: (() => void) | undefined
       if (state.booked[id]) {
-        if (!isCancellable(c, at)) r = { ok: false, message: 'Too late to cancel — under 2 hours to class' }
-        else {
-          dispatch({ type: 'cancel', id })
-          r = { ok: true, message: 'Cancelled · credit refunded' }
+        // Inside the two-hour window the booking can still be given up — refusing outright just
+        // left the seat empty, which serves nobody: the studio would rather have it back for the
+        // waitlist. What closes is the refund, not the cancellation. Undo is the safety net
+        // instead of a confirmation step, and it has to put the seat back without charging,
+        // since nothing was returned to charge against.
+        const refund = isCancellable(c, at)
+        dispatch({ type: 'cancel', id, refund })
+        r = { ok: true, message: refund ? 'Cancelled · credit refunded' : 'Cancelled · credit spent' }
+        undo = () => {
+          dispatch({ type: 'book', id, charge: refund })
+          showToast(refund ? 'Booking restored' : 'Booking restored · credit still yours')
         }
       } else if (state.waitlist[id]) {
         dispatch({ type: 'leave_waitlist', id })
@@ -240,11 +264,11 @@ export function useBooking(anchor: Date, weekOffset: number) {
       } else if (state.credits <= 0) {
         r = { ok: false, message: 'No credits left — add a pack' }
       } else {
-        dispatch({ type: 'book', id })
+        dispatch({ type: 'book', id, charge: true })
         r = { ok: true, message: `Booked ${c.name} · ${c.time}` }
         // A single tap spends a credit, so offer the exact inverse while the toast is up.
         undo = () => {
-          dispatch({ type: 'cancel', id })
+          dispatch({ type: 'cancel', id, refund: true })
           showToast('Booking undone · credit refunded')
         }
       }

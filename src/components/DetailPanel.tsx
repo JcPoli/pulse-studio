@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { COACHES, DESCRIPTIONS, TYPES } from '../data/catalog'
 import { DOW, MON, DAY_FULL, cancelDeadline, formatTime, isCancellable, isFull, spotsLeft, type StudioClass } from '../lib/schedule'
-import { downloadIcs } from '../lib/ics'
+import { downloadIcs, googleCalendarUrl } from '../lib/calendar'
 import { useIsMobile } from '../hooks/useIsMobile'
 
 interface Props {
@@ -100,9 +100,11 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
   let cls: 'book' | 'cancel' | 'wait'
   let disabled = false
   if (mine) {
-    cta = cancellable ? 'Cancel booking' : 'Booked · too late to cancel'
+    // Not disabled once the window closes. Refusing the cancellation left the seat empty, which
+    // helps nobody — the studio would rather have it back for the waitlist. What the deadline
+    // closes is the refund, and the button says so instead of pretending the door is shut.
+    cta = cancellable ? 'Cancel booking' : 'Cancel · no refund'
     cls = 'cancel'
-    disabled = !cancellable
   } else if (waitlisted) {
     cta = 'Leave waitlist'
     cls = 'cancel'
@@ -181,8 +183,13 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
               </button>
             )}
             <button type="button" className="addcal" onClick={() => downloadIcs(c)}>
-              Add to calendar
+              Calendar file
             </button>
+            {/* A real link, not a scripted open: an in-app browser that silently swallows the
+                .ics blob download will still follow an anchor. */}
+            <a className="addcal" href={googleCalendarUrl(c)} target="_blank" rel="noopener noreferrer">
+              Google Calendar
+            </a>
           </div>
           {/* Gated on `cancellable`, not just `moving`: the live clock can cross the two-hour
               deadline with the picker open, and the panel should not keep offering a move the
@@ -238,7 +245,7 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
           <small>
             {cancellable
               ? `Free cancellation until ${formatTime(deadline)}`
-              : `Cancellation closed at ${formatTime(deadline)}`}
+              : `Free cancellation closed at ${formatTime(deadline)} — cancelling now spends the credit.`}
           </small>
         </div>
       )}
