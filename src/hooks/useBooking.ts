@@ -10,7 +10,7 @@ import {
   isPast,
   type StudioClass,
 } from '../lib/schedule'
-import { alternativesFor, clashWith, goesToQueue, queuePosition } from '../lib/booking'
+import { SERIES_LIMIT, alternativesFor, clashWith, goesToQueue, queuePosition, seriesOf } from '../lib/booking'
 import { seedAttendance, statsFrom, type Attendance } from '../lib/history'
 
 // Defined with the URL schema it has to survive a round trip through, and re-exported here so
@@ -38,6 +38,8 @@ export interface BookingState {
  */
 type Action =
   | { type: 'book'; id: string; charge: boolean }
+  | { type: 'book_many'; ids: string[] }
+  | { type: 'cancel_many'; ids: string[] }
   | { type: 'cancel'; id: string; refund: boolean; toQueue: boolean }
   | { type: 'reschedule'; from: string; to: string; toQueue: boolean }
   | { type: 'join_waitlist'; id: string }
@@ -54,6 +56,29 @@ export function reducer(s: BookingState, a: Action): BookingState {
         booked,
         taken: { ...s.taken, [a.id]: (s.taken[a.id] ?? 0) + 1 },
       }
+    }
+    // A series is one action rather than a loop of them, so it is one entry in the reducer,
+    // one render, and one thing for Undo to reverse.
+    case 'book_many': {
+      const booked = { ...s.booked }
+      const taken = { ...s.taken }
+      for (const id of a.ids) {
+        booked[id] = true
+        taken[id] = (taken[id] ?? 0) + 1
+      }
+      return { ...s, credits: s.credits - a.ids.length, booked, taken }
+    }
+    case 'cancel_many': {
+      const booked = { ...s.booked }
+      const taken = { ...s.taken }
+      for (const id of a.ids) {
+        delete booked[id]
+        taken[id] = (taken[id] ?? 0) - 1
+      }
+      // No seat here can be owed to a queue: a queue only forms behind a class that was already
+      // full, and a full class cannot be booked in the first place. So every seat a series
+      // release gives up came from the pool and goes back to it.
+      return { ...s, credits: s.credits + a.ids.length, booked, taken }
     }
     case 'cancel': {
       const booked = { ...s.booked }
@@ -402,6 +427,39 @@ export function useBooking(anchor: Date, weekOffset: number) {
     [byId, findClash, state.booked, showToast],
   )
 
+  /** The standing appointment this class belongs to: itself plus the next few weeks of it. */
+  const series = useCallback(
+    (c: StudioClass, at: Date): StudioClass[] => seriesOf(allClasses, c, upcoming, at),
+    [allClasses, upcoming],
+  )
+
+  /**
+   * Books a whole series in one action. Partial success is deliberate and reported rather than
+   * refused: a member with two credits asking for four Tuesdays wants the two, and telling them
+   * "no" would leave them booking one at a time to reach the same place.
+   */
+  const bookSeries = useCallback(
+    (c: StudioClass): ToggleResult => {
+      const at = new Date()
+      const all = series(c, at)
+      const ids = all.slice(0, state.credits).map((s) => s.id)
+      if (ids.length === 0) {
+        return { ok: false, message: state.credits <= 0 ? 'No credits left — add a pack' : 'Nothing left to book' }
+      }
+      dispatch({ type: 'book_many', ids })
+      const short = ids.length < all.length
+      const message = `Booked ${ids.length} ${DOW[c.when.getDay()]}${ids.length === 1 ? '' : 's'}${
+        short ? ` · ${all.length - ids.length} more than you have credits for` : ''
+      }`
+      showToast(message, () => {
+        dispatch({ type: 'cancel_many', ids })
+        showToast('Series undone · credits refunded')
+      })
+      return { ok: true, message }
+    },
+    [series, state.credits, showToast],
+  )
+
   const alternatives = useCallback(
     (c: StudioClass, at: Date): StudioClass[] => alternativesFor(allClasses, c, upcoming, at),
     [allClasses, upcoming],
@@ -435,6 +493,9 @@ export function useBooking(anchor: Date, weekOffset: number) {
     toggle,
     reschedule,
     alternatives,
+    series,
+    bookSeries,
+    SERIES_LIMIT,
     topUp,
     toast,
     showToast,

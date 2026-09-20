@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ALTERNATIVES_LIMIT, alternativesFor, clashWith, goesToQueue, queuePosition } from './booking'
+import { ALTERNATIVES_LIMIT, SERIES_LIMIT, alternativesFor, clashWith, goesToQueue, queuePosition, seriesOf } from './booking'
 import { buildClasses, buildDays, isFull, isPast, type StudioClass } from './schedule'
 import { reducer, type BookingState } from '../hooks/useBooking'
 
@@ -250,5 +250,80 @@ describe('the queue behind a full class', () => {
     expect(moved.taken[OPEN.id]).toBe(1) // the new seat is taken
     expect(moved.promoted[FULL.id]).toBe(1)
     expect(moved.credits).toBe(6) // still one seat, still no money moved
+  })
+})
+
+describe('seriesOf', () => {
+  const MON_HIIT = at('2026-09-21', '07:30') // HIIT 45, Monday 07:30, recurs weekly
+
+  it('finds the standing appointment, starting with the class itself', () => {
+    const s = seriesOf(ALL, MON_HIIT, [], ANCHOR)
+    expect(s[0].id).toBe(MON_HIIT.id)
+    expect(s.length).toBeGreaterThan(1)
+    for (const x of s) {
+      expect(x.name).toBe(MON_HIIT.name)
+      expect(x.time).toBe(MON_HIIT.time)
+      expect(x.when.getDay()).toBe(MON_HIIT.when.getDay())
+    }
+  })
+
+  it('steps forward a week at a time', () => {
+    const s = seriesOf(ALL, MON_HIIT, [], ANCHOR)
+    for (let i = 1; i < s.length; i++) {
+      const days = (s[i].when.getTime() - s[i - 1].when.getTime()) / 86_400_000
+      expect(Math.round(days)).toBe(7)
+    }
+  })
+
+  it('never reaches backwards', () => {
+    const later = at('2026-09-28', '07:30')
+    for (const x of seriesOf(ALL, later, [], ANCHOR)) expect(x.date >= later.date).toBe(true)
+  })
+
+  it('is narrower than the reschedule list, which is the point', () => {
+    // Alternatives will happily offer Tuesday evening; a series must not enrol a Monday-morning
+    // regular in one. Same class, different weekday, so the two lists disagree by design.
+    const alts = alternativesFor(ALL, MON_HIIT, [MON_HIIT], ANCHOR)
+    const s = seriesOf(ALL, MON_HIIT, [], ANCHOR)
+    expect(alts.some((a) => a.when.getDay() !== MON_HIIT.when.getDay())).toBe(true)
+    expect(s.every((x) => x.when.getDay() === MON_HIIT.when.getDay())).toBe(true)
+  })
+
+  it('skips a sitting already booked', () => {
+    const full = seriesOf(ALL, MON_HIIT, [], ANCHOR)
+    const held = [full[1]]
+    const s = seriesOf(ALL, MON_HIIT, held, ANCHOR)
+    expect(s.some((x) => x.id === full[1].id)).toBe(false)
+  })
+
+  it('stops at the offered limit', () => {
+    expect(seriesOf(ALL, MON_HIIT, [], ANCHOR).length).toBeLessThanOrEqual(SERIES_LIMIT)
+    expect(seriesOf(ALL, MON_HIIT, [], ANCHOR, 2).length).toBe(2)
+  })
+})
+
+describe('reducer: booking a series', () => {
+  const ids = ['a', 'b', 'c']
+  const base: BookingState = { credits: 6, taken: {}, booked: {}, waitlist: {}, attended: [], promoted: {} }
+  const after = reducer(base, { type: 'book_many', ids })
+
+  it('takes one credit and one seat per class', () => {
+    expect(after.credits).toBe(3)
+    for (const id of ids) {
+      expect(after.booked[id]).toBe(true)
+      expect(after.taken[id]).toBe(1)
+    }
+  })
+
+  it('is reversed exactly by cancelling the same list', () => {
+    const back = reducer(after, { type: 'cancel_many', ids })
+    expect(back.credits).toBe(base.credits)
+    expect(back.booked).toEqual({})
+    for (const id of ids) expect(back.taken[id]).toBe(0)
+  })
+
+  it('leaves the queue alone, because a booked class was never full', () => {
+    const back = reducer(after, { type: 'cancel_many', ids })
+    expect(back.promoted).toEqual({})
   })
 })

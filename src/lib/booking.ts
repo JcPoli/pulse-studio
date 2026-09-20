@@ -60,3 +60,39 @@ export const queuePosition = (c: StudioClass): number => c.waiting + 1
  * next person in line takes the spot, and the board should keep showing the class as full.
  */
 export const goesToQueue = (c: StudioClass): boolean => c.waiting > 0
+
+/** How many sittings ahead a "book the series" offer reaches. */
+export const SERIES_LIMIT = 4
+
+/**
+ * The same class at the same hour on the same weekday, from `c` forward through the horizon —
+ * what a member means by "I do this every Tuesday".
+ *
+ * Narrower than `alternativesFor` on purpose. A reschedule wants any other sitting, because the
+ * member is looking for a slot that suits them this once; a series wants the standing
+ * appointment, so a Tuesday evening booking must not quietly enrol them in Saturday mornings.
+ * `c` itself is the first element, so the length of the result is the number of seats and the
+ * number of credits.
+ */
+export function seriesOf(
+  all: StudioClass[],
+  c: StudioClass,
+  held: StudioClass[],
+  at: Date,
+  limit: number = SERIES_LIMIT,
+): StudioClass[] {
+  const heldIds = new Set(held.map((h) => h.id))
+  return all
+    .filter(
+      (s) =>
+        s.name === c.name &&
+        s.time === c.time &&
+        s.when.getDay() === c.when.getDay() &&
+        s.date >= c.date &&
+        !heldIds.has(s.id) &&
+        !isPast(s, at) &&
+        !isFull(s) &&
+        !clashWith(held, s, c.id),
+    )
+    .slice(0, limit)
+}

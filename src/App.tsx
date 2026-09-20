@@ -234,6 +234,16 @@ export default function App() {
     [selectedClass, b.booked, b.alternatives, clock],
   )
 
+  const onSeries = useCallback(() => {
+    if (selectedClass) b.bookSeries(selectedClass)
+  }, [selectedClass, b.bookSeries])
+
+  /** Offered only for a class the member could book right now, so the panel asks nothing else. */
+  const series = useMemo(
+    () => (selectedClass && !b.booked[selectedClass.id] ? b.series(selectedClass, clock) : []),
+    [selectedClass, b.booked, b.series, clock],
+  )
+
   /** Whole-week total for the active filter, so a filter with no matches says so. */
   const weekCount = useMemo(
     () => b.classes.filter((c) => matches(c, filter)).length,
@@ -312,8 +322,10 @@ export default function App() {
               waitlisted={!!(selected && b.waitlist[selected])}
               open={panelOpen}
               alternatives={alternatives}
+              series={series}
               onToggle={b.toggle}
               onReschedule={onReschedule}
+              onSeries={onSeries}
               onShare={onShare}
               onCoach={onCoach}
               onClose={closePanel}

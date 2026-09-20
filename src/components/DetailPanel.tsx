@@ -14,17 +14,20 @@ interface Props {
   open: boolean
   /** Other sittings of this class the booking could move to; empty unless `mine`. */
   alternatives: StudioClass[]
+  /** This class and the next few weeks of it at the same hour; empty unless it is bookable. */
+  series: StudioClass[]
   onToggle: (id: string) => void
   onShare: () => void
   onCoach: (name: CoachName) => void
   onReschedule: (fromId: string, toId: string) => void
+  onSeries: () => void
   onClose: () => void
 }
 
 const FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
 
 /** Sticky aside on desktop; slides up as a bottom sheet under 980px (see .panel in index.css). */
-export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternatives, onToggle, onReschedule, onShare, onCoach, onClose }: Props) {
+export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternatives, series, onToggle, onReschedule, onSeries, onShare, onCoach, onClose }: Props) {
   const panelRef = useRef<HTMLElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -176,6 +179,14 @@ export function DetailPanel({ c, now, credits, mine, waitlisted, open, alternati
       <button type="button" className={`cta ${cls}`} disabled={disabled} onClick={() => onToggle(c.id)}>
         {cta}
       </button>
+      {/* Only when there is actually a series to book, and only when booking is what the button
+          above would do: offering "every Tuesday" next to "Join waitlist" would be two different
+          answers to the same tap. */}
+      {!mine && !waitlisted && !full && credits > 0 && series.length > 1 && (
+        <button type="button" className="cta series" onClick={onSeries}>
+          Book every {DOW[c.when.getDay()]} · {series.length} classes, {series.length} credits
+        </button>
+      )}
       <div className="postcta">
         <div className="pcrow">
           {mine && cancellable && (

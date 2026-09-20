@@ -171,6 +171,10 @@ html { -webkit-text-size-adjust: 100%; }
   .cta.cancel { background: transparent; border: 1px solid var(--line); color: var(--text); }
   .cta.cancel:hover { border-color: var(--danger); color: var(--danger); }
   .cta.wait { background: var(--bg-3); color: var(--text); }
+  /* Outlined, not filled: booking a month of Tuesdays is the bigger commitment but the rarer
+     intent, so it sits below the primary action without competing with it for the eye. */
+  .cta.series { margin-top: 8px; background: transparent; border: 1px solid var(--line); color: var(--text-2); font-size: 12.5px; }
+  .cta.series:hover { border-color: var(--text-3); color: var(--text); }
   .cta:disabled { background: var(--bg-3); color: var(--text-3); cursor: not-allowed; filter: none; }
   .postcta { margin-top: 12px; display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
   /* Two peers, never a primary and a secondary: the real primary is .cta above them. Both
